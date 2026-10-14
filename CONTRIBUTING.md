@@ -90,13 +90,66 @@ All routines are vectorised over a leading time axis: inputs `(..., 3)` give out
   `precession_per_orbit_1pn(a, e, gm, c) = 6 pi gm / (c^2 a (1 - e^2))`.
 - `null.py` (Phase 6): photon geodesics, `deflection_angle(b, gm, c)`, Shapiro delay.
 
+## Extra forces (`gravsim/forces/extras.py`, Phase 8 "what competes with GR")
+Corrections only (add to Newton/1PN/EIH with `combine`), applied to every body `i != central` from the
+central body's position; the central body gets the reaction `-sum_i gm_i a_i / gm_central` so momentum
+is conserved. `axis` is the unit spin vector of the central body (default `constants.SUN_POLE_ECLIPTIC`).
+- `make_j2(j2=SUN_J2, r_eq=R_SUN_AU, central=0, axis=SUN_POLE_ECLIPTIC) -> AccelFn`: quadrupole field
+  `a = (3 j2 gm_c r_eq^2 / (2 r^5)) * [ (5 (r.n)^2 / r^2 - 1) r - 2 (r.n) n ]` with `n = axis`.
+  Secular rates (Kaula/Gauss, inclination `i` relative to the central body's equator, p = a(1-e^2)):
+  `dOmega/dt = -(3/2) n_mean j2 (r_eq/p)^2 cos i`, `domega/dt = (3/4) n_mean j2 (r_eq/p)^2 (5 cos^2 i - 1)`;
+  Mercury: dvarpi/dt ~ +0.028 "/cy for j2 = 2.2e-7.
+- `make_lense_thirring(gj=GJ_SUN, c=C_AU_DAY, central=0, axis=SUN_POLE_ECLIPTIC, scale=1.0) -> AccelFn`:
+  gravitomagnetic (frame-dragging) acceleration of a test body, `J = gj * scale * axis` carried as G*J
+  in AU^5/day^3: `a = (2 / (c^2 r^3)) * [ (3 / r^2) (r . GJ) (r x v) + (v x GJ) ]`.
+  Secular rates: `dOmega/dt = 2 GJ / (c^2 a^3 (1-e^2)^1.5)`, `domega/dt = -6 GJ cos i / (c^2 a^3 (1-e^2)^1.5)`
+  (i relative to the spin equator). Mercury: ~ -0.002 "/cy; `scale` exaggerates J for lessons.
+- Rates of the node and argument are measured with `analysis.precession.element_series(traj, body,
+  key, central="Sun") -> (t, values)` for any key of `kepler.state_to_elements` (Phase 8 addition;
+  angles unwrapped by the caller via `fit_secular_rate`). Inclination relative to the solar equator:
+  `analysis.elements.inclination_to_axis(r, v, axis)`.
+
+## Web front end (`gravsim/web/` + `web/`, Phase 8)
+Physics stays in Python; the browser only renders. Three.js (pinned `three@0.160.0` from
+cdn.jsdelivr.net via an import map, no build step) in `web/index.html`, `web/app.js`, `web/style.css`.
+- `gravsim/web/scenarios.py` (pure, no FastAPI): `list_scenarios() -> list[dict]` (id, title, blurb,
+  params with defaults/ranges) and `build_scenario(scenario_id, **params) -> dict` returning
+  `{"meta": {...}, "arrays": {name: float32 ndarray}}`. `meta` holds id, title, names, units
+  ("AU", "day"), frame, t0, n_samples, per-model notes and the precomputed numbers to display (fitted
+  rates, analytic predictions). Array names: `t` (T,), `pos_newton` (T,N,3), `pos_gr` (T,N,3) for the
+  N-body scenarios; `peri_idx_newton`/`peri_idx_gr` (K,) sample indices of Mercury's perihelia;
+  scenario-specific arrays (`ray_<k>` polylines, `geodesic` (T,3)) documented in `meta["arrays"]`.
+- `gravsim/web/payload.py`: `encode(payload) -> bytes` = 4-byte little-endian uint32 header length +
+  UTF-8 JSON header (`meta` plus an `index` of {name, dtype:"float32"|"int32", shape, offset, nbytes})
+  + concatenated little-endian arrays; `decode(bytes) -> payload`. The JS loader mirrors `decode`.
+- `gravsim/web/server.py`: `create_app() -> FastAPI` serving `web/` at `/` (index.html at `/`),
+  `GET /api/health`, `GET /api/scenarios` (JSON list; each entry has `url` = `/api/scenario/<id>`),
+  `GET /api/scenario/{id}?<params>` (`application/octet-stream`, in-process cache keyed by id+params).
+  `python -m gravsim.web [--port 8000]` runs uvicorn.
+- `scripts/export_web.py [--out web/data]` writes `manifest.json` (same entries, `url` = `data/<id>.bin`)
+  and the `.bin` files for the default params so `web/` works from any static server
+  (`python -m http.server -d web`). The front end fetches `data/manifest.json`, falls back to
+  `/api/scenarios`, and decodes every scenario through one code path.
+- Front end exposes `window.__gravsim = {ready, scenario, loadScenario(id), setTime(frac),
+  setAmplification(k), stats: {frames}}` for browser tests. Scenarios: `solar_system` (100 yr, Newton
+  vs EIH, amplification slider, Mercury perihelion trail, Sun-wobble/barycentric toggle, camera
+  presets), `rosette` (Sun + Mercury at c/100), `black_hole` (zoom-whirl geodesic from
+  `metric.schwarzschild.geodesic_orbit`, coordinates in GM/c^2), `light_rays` (null-geodesic bundle
+  from `metric.null.ray_bundle`), `earth_moon` (Sun + Earth + Moon + planets, 2 yr).
+- Browser tests (`tests/test_web.py`, marker `web`, skipped without playwright/chromium): start the
+  server on a free port, load the page headlessly, require no console errors, `__gravsim.ready`, a
+  rendered frame count > 0 after each `loadScenario`, and save `figures/web_<id>.png`.
+
 ## Data (`gravsim/data/`)
-- `horizons.py`: `fetch_state(epoch_jd, names) -> SystemState`, `load_j2000() -> SystemState`,
-  `load_reference_series() -> Trajectory` (cached, no network), `fetch_series(...)` (network).
+- `horizons.py`: `fetch_state(epoch_jd, names) -> SystemState`, `load_j2000(with_moon=False) ->
+  SystemState` (`with_moon=True` gives `DEFAULT_BODIES_MOON`: Earth and Moon separate),
+  `load_reference_series() -> Trajectory` (100 yr, 20-day), `load_moon_reference_series()` (10 yr,
+  daily, Earth + Moon), all cached with no network; `fetch_series(...)` (network).
 - Tests must never hit the network; use the cached files. Network tests are marked `@pytest.mark.network`.
 
 ## Testing
 - `tests/test_<module>.py` per module; validation targets in `tests/test_validation.py`.
+- Markers: `slow`, `network`, `web` (all deselected by default).
 - Fast suite must run in < 90 s serially (about 60 s today; `-n auto` with pytest-xdist for a quick
   parallel run); mark century-long runs `@pytest.mark.slow`.
 - Validation tolerances (ROADMAP §4): Mercury 2-body 1PN 42.98 ± 0.1 "/cy; Newton 2-body noise floor

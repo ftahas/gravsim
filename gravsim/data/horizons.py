@@ -7,6 +7,8 @@ Cached files (shipped with the package, no network needed):
 * ``j2000.json``        -- state vectors of Sun + 8 planets at J2000.0.
 * ``horizons_ref.npz``  -- the same bodies sampled every 20 days from J2000.0 for 100 Julian years,
   used as the "observed" reference (DE441-based, includes GR and asteroid perturbations).
+* ``j2000_moon.json``   -- Sun + planets with Earth and Moon as separate bodies at J2000.0.
+* ``horizons_moon_ref.npz`` -- that system sampled daily for 10 Julian years.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from gravsim.constants import DEFAULT_BODIES, GM, HORIZONS_IDS, J2000_JD
 DATA_DIR = Path(__file__).resolve().parent
 J2000_PATH = DATA_DIR / "j2000.json"
 REF_PATH = DATA_DIR / "horizons_ref.npz"
+J2000_MOON_PATH = DATA_DIR / "j2000_moon.json"
+MOON_REF_PATH = DATA_DIR / "horizons_moon_ref.npz"
 
 
 # --------------------------------------------------------------------------- network
@@ -108,9 +112,13 @@ def load_snapshot(path: Path = J2000_PATH) -> SystemState:
     return SystemState(t=float(doc["t_days_since_j2000"]), pos=pos, vel=vel, gm=gm, names=names)
 
 
-def load_j2000() -> SystemState:
-    """Sun + 8 planets at J2000.0 from the shipped cache (no network)."""
-    return load_snapshot(J2000_PATH)
+def load_j2000(with_moon: bool = False) -> SystemState:
+    """Sun + 8 planets at J2000.0 from the shipped cache (no network).
+
+    With ``with_moon=True`` Earth and Moon are separate bodies (``DEFAULT_BODIES_MOON``)
+    instead of the Earth-Moon barycenter.
+    """
+    return load_snapshot(J2000_MOON_PATH if with_moon else J2000_PATH)
 
 
 def save_reference_series(traj: Trajectory, path: Path = REF_PATH) -> None:
@@ -130,3 +138,10 @@ def load_reference_series(path: Path = REF_PATH) -> Trajectory:
             names=tuple(str(n) for n in z["names"]),
             meta={"source": "JPL Horizons", "frame": "SSB, J2000 ecliptic", "step": "20d"},
         )
+
+
+def load_moon_reference_series(path: Path = MOON_REF_PATH) -> Trajectory:
+    """10-year Horizons series of Sun + planets + Earth + Moon, daily from J2000.0 (no network)."""
+    traj = load_reference_series(path)
+    traj.meta["step"] = "1d"
+    return traj

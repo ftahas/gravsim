@@ -64,6 +64,19 @@ PLANETS: tuple[str, ...] = (
     "Neptune",
 )
 DEFAULT_BODIES: tuple[str, ...] = ("Sun",) + PLANETS
+# Same system with the Earth-Moon barycenter replaced by Earth and Moon as separate bodies.
+DEFAULT_BODIES_MOON: tuple[str, ...] = (
+    "Sun",
+    "Mercury",
+    "Venus",
+    "Earth",
+    "Moon",
+    "Mars",
+    "Jupiter",
+    "Saturn",
+    "Uranus",
+    "Neptune",
+)
 
 # Horizons target identifiers for the default bodies (system barycenters for planets).
 HORIZONS_IDS: dict[str, str] = {
@@ -81,9 +94,29 @@ HORIZONS_IDS: dict[str, str] = {
     "Moon": "301",
 }
 
+# --- solar spin: oblateness and angular momentum (Phase 8 "competing effects") -------------
+SUN_J2 = 2.2e-7  # solar quadrupole moment (helioseismology 2.18e-7; MESSENGER 2.25(9)e-7)
+G_SI = 6.67430e-11  # [m^3 kg^-1 s^-2], CODATA 2018
+J_SUN_SI = 1.90e41  # solar angular momentum [kg m^2 s^-1], Pijpers (1998) helioseismic value
+GJ_SUN = G_SI * J_SUN_SI * DAY_S**3 / (AU_KM * 1e3) ** 5  # G * J_sun in AU^5/day^3 (~1.1e-10)
+# Solar rotation axis in the J2000 ecliptic frame from the Carrington elements
+# (inclination 7.25 deg to the ecliptic, ascending node at ecliptic longitude 75.76 deg).
+SUN_POLE_INCLINATION_DEG = 7.25
+SUN_POLE_NODE_DEG = 75.76
+_i_pole = math.radians(SUN_POLE_INCLINATION_DEG)
+_node_pole = math.radians(SUN_POLE_NODE_DEG)
+_si, _ci = math.sin(_i_pole), math.cos(_i_pole)
+_sO, _cO = math.sin(_node_pole), math.cos(_node_pole)
+SUN_POLE_ECLIPTIC: tuple[float, float, float] = (_si * _sO, -_si * _cO, _ci)
+"""Unit vector of the Sun's north rotation pole in the J2000 ecliptic frame."""
+
 # --- reference values used by the validation suite ------------------------------------
 # Secular perihelion advance of Mercury in an inertial frame, arcsec per Julian century.
 MERCURY_PRECESSION_GR_ARCSEC_CY = 42.98  # 1PN, Schwarzschild term
 MERCURY_PRECESSION_NEWTON_ARCSEC_CY = 531.6  # planetary perturbations (Clemence 1947: 531.63)
 MERCURY_PRECESSION_OBSERVED_ARCSEC_CY = 574.1
 LIGHT_DEFLECTION_LIMB_ARCSEC = 1.751  # 4 GM / (c^2 R_sun)
+MERCURY_PRECESSION_J2_ARCSEC_CY = 0.028  # (3/2) n J2 (R_sun/p)^2 for SUN_J2 = 2.2e-7
+MERCURY_PRECESSION_LT_ARCSEC_CY = -0.002  # Lense-Thirring frame dragging (Iorio 2005: -2 mas/cy)
+MOON_PERIGEE_RATE_DEG_YR = 40.69  # secular advance of the lunar perigee (solar perturbation)
+MOON_NODE_RATE_DEG_YR = -19.34  # regression of the lunar node
