@@ -227,11 +227,21 @@ Streamlit lab with cached precomputed runs (`app/streamlit_app.py`):
 - Deviation: labs 5 and 6 are numbered in lesson order (PPN = lessons 06–07, light = lesson 08),
   the reverse of the list above.
 
-### Phase 8 — Polish (ongoing)
-- [x] mkdocs theory pages (derivations of 1PN term, EIH, PPN precession formula, light); `mkdocs build --strict` passes.
+### Phase 8 — Polish and the competing effects — DONE
+- [x] mkdocs theory pages (derivations of 1PN term, EIH, PPN precession formula, light, extras); `mkdocs build --strict` passes.
 - [x] Packaging (`pip install -e .`), README with the headline plots and the validation table.
-- [x] CI: `.github/workflows/ci.yml` runs ruff and the fast suite (REBOUNDx oracle tests skip when absent).
-- [ ] Optional: Three.js front end, Lense-Thirring/J2, asteroid belt, Moon, CITATION file.
+- [x] CI: `.github/workflows/ci.yml` runs ruff and the fast suite (REBOUNDx oracle tests skip when absent); the browser suite is a best-effort job.
+- [x] Solar J2 and Lense–Thirring (`forces/extras.py`, corrections with the momentum-conserving reaction on the Sun): Mercury +0.0278 and −0.0020 "/century (run-vs-run, century); node and argument rates in the solar-equator frame match Kaula / Lense–Thirring to 1e-4 with the effects amplified (`analysis.precession.element_series`, `elements.inclination_to_axis`).
+- [x] The Moon as a body (`load_j2000(with_moon=True)`, cached 10-yr Horizons Earth + Moon series): sidereal month 27.3217 d, perigee +40.6 and node −19.4 °/yr over 10 yr (secular 40.69 / −19.34; the Horizons series fitted over the same span agrees to 0.01 °/yr), Moon within 161 km of Horizons over 10 yr with 1PN; Mercury's GR signal unchanged (6e-8 "/cy), its Newtonian rate shifted by −0.0025.
+- [x] Three.js front end (`gravsim/web/` + `web/`): five scenarios, FastAPI server or static export, playwright tests (marker `web`).
+- [x] Lesson 09 "What else competes with GR?" and app lab 7 "Competing effects"; CITATION.cff.
+- [ ] Not done, by design: the asteroid belt is quoted analytically (a ring of 1.2e-9 M☉ at 2.7 AU gives +0.0014 "/cy) and not integrated.
+
+Deviations from the plan, found while validating:
+- The EMB approximation is not exact at the km level: the barycentre of the Earth–Moon pair feels on average ε = (3/4) w_E w_M (a_M/a_E)² ≈ 6e-8 more solar pull than a point mass, so the EMB *run* lags the real barycentre by 2εnat ≈ 110 km/yr (234 km in 2 yr, 1170 in 10, predicted 220 / 1100). "Split-vs-EMB barycentre < 100 km" is therefore unattainable; the suite asserts split-barycentre-vs-Horizons < 100 km (0.9 km over 2 yr, 6.8 over 10) and the drift against its analytic prediction.
+- "Moon sidereal period from the perihelion-passage spacing" would be the anomalistic month (27.555 d); the sidereal month (27.3217 d) is taken as 2π over the fitted mean motion of the mean longitude ϖ + M.
+- The Lense–Thirring "reaction" on the Sun is a momentum-conservation device required by the contract, not a physical back-reaction (the gravitomagnetic force is not pairwise action–reaction); `forces/extras.py` says so.
+- The 100-year Lense–Thirring row is reported, not asserted: −0.0020 "/cy against a differencing noise of 3e-8 is a clean measurement, but a tolerance of ±0.002 would also accept a force that does nothing.
 
 ---
 
@@ -256,6 +266,11 @@ Streamlit lab with cached precomputed runs (`app/streamlit_app.py`):
 | EIH − (Sun-only 1PN) Mercury secular rate | 0 | < 0.02 "/century |
 | REBOUNDx `gr_full` vs EIH, 10 yr | positions | < 10 km (measured 0.035) |
 | Newton vs. Horizons, 10 yr | km-level | documented, not asserted tightly |
+| Solar J₂ (2.2e-7), Sun + Mercury, 100 yr, run-vs-run | +0.028 "/century | ± 0.005 (measured 0.0278); J₂ × 1000 node/argument vs Kaula ± 3 % (measured 1e-4) |
+| Lense–Thirring, J × 1e5, 10 yr | node 2GJ/(c²a³(1−e²)^{3/2}), argument −6GJ cos i/(…) | ± 3 % (measured 1e-4); real size −0.0020 "/century reported |
+| Moon (ten-body run, 10 yr) | sidereal month 27.32 d; perigee +40.7, node −19.3 °/yr | ± 0.05 d; ± 1.5 / ± 1.0 °/yr (measured 27.3217; +40.59 / −19.36, Horizons same span to 0.01) |
+| Moon vs Horizons, 2 yr | positions | < 500 km (measured 38 km with 1PN, 157 Newton); real barycentre vs Horizons 7 km over 10 yr; EMB point mass drifts 2εnat ≈ 110 km/yr (reported) |
+| Mercury GR rate with the Moon present | equals the EMB value | ± 0.1 "/century (measured 6e-8); Newtonian shift −0.0025 reported |
 
 ---
 

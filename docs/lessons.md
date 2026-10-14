@@ -1,6 +1,6 @@
 # Lessons
 
-Eight notebooks in `notebooks/`, one or two per phase. Every lesson states the physics before
+Nine notebooks in `notebooks/`, one or two per phase. Every lesson states the physics before
 the code, runs in well under a minute from the cached ephemerides (no network), ends with a
 summary and exercises (★ = harder), and has a matching lab in the Streamlit app. Run them in order with
 `.venv/bin/jupyter lab notebooks/`; `Kernel → Restart & Run All` is the intended way to read
@@ -17,6 +17,7 @@ tests/test_notebooks.py` executes all of them as a test.
 | **06 Le Verrier, Vulcan, Einstein** | 5 | 20 s | the history (1859 → Vulcan → November 1915); the Einstein–Infeld–Hoffmann equations in words and in PPN form, and why the ephemerides integrate them; three nine-body runs (Newton, EIH, Newton + 1PN); the anomaly *from data*: ϖ(Horizons) − ϖ(run) drifts at 43.02 ± 0.13″/cy for Newton and is flat for EIH; EIH vs Sun-only 1PN (10⁻⁵″/cy, periodic km); a binary star on Mercury's orbit showing the advance is mass-ratio independent |
 | **07 What if gravity were a different theory?** | 5 | 26 s | the PPN metric and the meaning of γ and β; Brans–Dicke; the Gauss-equation derivation of (2 + 2γ − β)/3; a 3×3 grid of (β, γ) runs at c/100 fitted against the prediction (< 1 %); the 2γ − β degeneracy and a theory that mimics GR's 43″ but not its light bending; the Cassini, LLR and Mercury bounds to scale |
 | **08 Eddington 1919** | 6 | 8 s | Soldner's 0.875″ vs Einstein's 1.75″ and the (1 + γ)/2 table; deflection vs impact parameter with the 1919–2004 measurements; ray bundles past a compact mass and past the Sun; photon sphere, capture and the EHT shadows; the Shapiro delay (Earth–Mars 124 μs one way, Cassini geometry) and the conjunction spike; why light tests break the 2γ − β degeneracy |
+| **09 What else competes with GR?** | 8 | 21 s | the budget at the 0.01″ level (planets 531.6, GR 42.98, J₂ +0.028, Moon-vs-EMB −0.0025, frame dragging −0.002, asteroids +0.0014″/cy); the Moon as a body: sidereal month, perigee +40.6°/yr and node −19.4°/yr from the ten-body run against Horizons, the EMB drift 2εnat; the oblate Sun (J₂ × 1000 and real) against Kaula's node and argument formulas in the solar-equator frame; frame dragging (J × 10⁵ and real) against Lense–Thirring; why GR moves only ω; the J₂/GR ratio falling as 1/p across the planets; the signature table reconciling Lesson 06's Horizons − EIH residual |
 
 ## How the lessons connect
 
@@ -34,3 +35,6 @@ tests/test_notebooks.py` executes all of them as a test.
    measures only 2γ − β.
 8. Lesson 08 turns to **light**, which measures γ alone (deflection, Shapiro delay) and so
    completes the test.
+9. Lesson 09 asks what **else** moves the perihelion at the 0.01″ level — the oblate Sun, the
+   Sun's spin, the Moon as a body — and shows how the node and the argument of perihelion tell
+   them apart from GR.

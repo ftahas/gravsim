@@ -20,6 +20,7 @@ nav:
   - Overview: index.md
   - Lessons (notebooks): lessons.md
   - Interactive lab (app): app.md
+  - Web front end (Three.js): web.md
   - Theory:
       - Newtonian N-body problem: theory/newton.md
       - Integrators and their errors: theory/integrators.md
@@ -29,4 +30,5 @@ nav:
       - The Einstein–Infeld–Hoffmann equations: theory/eih.md
       - The PPN framework (β, γ): theory/ppn.md
       - Light, deflection and the Shapiro delay: theory/light.md
+      - What competes with GR (J₂, frame dragging, the Moon): theory/extras.md
   - Validation: validation.md

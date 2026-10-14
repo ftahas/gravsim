@@ -56,6 +56,26 @@ package's own force laws and integrators, and compares it with a reference:
     124 microseconds (report; ~250 for the Viking round trip), and the exact null-geodesic
     transit time minus the flat light time agrees with it to 1 percent (measured ~1e-4, the
     second-order end-point and Fermat terms; see ``gravsim.metric.null``).
+16. **Solar oblateness (Phase 8).**  Sun + Mercury with the quadrupole field of the Sun
+    (``forces.extras.make_j2``, ``J2 = 2.2e-7``, axis ``SUN_POLE_ECLIPTIC``): the run-vs-run
+    difference against Newton over the span is +0.028 +- 0.005 arcsec/century, the Kaula
+    rates ``dOmega/dt = -(3/2) n J2 (R/p)^2 cos i`` and ``domega/dt = (3/4) n J2 (R/p)^2
+    (5 cos^2 i - 1)`` (node and argument in the solar-equator frame, ``i`` = 3.38 deg) are
+    recovered to 3 percent with ``J2 x 1000`` over ten years (measured 1e-4).
+17. **Frame dragging.**  Same with ``make_lense_thirring`` (``J x 1e5``, ten years): the node
+    advances at ``2 GJ / (c^2 a^3 (1 - e^2)^1.5)`` and the argument regresses three times
+    faster (``-6 GJ cos i / ...``), each to 3 percent (measured 1e-4); the real-size
+    difference against Newton over the span is reported (-0.002 arcsec/century).
+18. **The Moon (Phase 8).**  Sun + planets + Earth + Moon (``load_j2000(with_moon=True)``) on
+    the daily grid of the cached Horizons Moon series, ten years: sidereal month 27.32 +- 0.05 d
+    (2 pi over the fitted mean motion of the mean longitude), perigee advance 40.7 +- 1.5 and
+    node regression -19.3 +- 1.0 deg/yr (the Sun's tide; the same fits of the Horizons series
+    over the same span agree to 0.3 deg/yr), the Moon within 500 km of Horizons over two years
+    (Newton + 1PN; reported for Newton alone), the drift of the EMB point mass away from the real
+    Earth-Moon barycentre (reported; ``2 eps n a t`` ~ 110 km/yr with
+    ``eps = (3/4) w_E w_M (a_M/a_E)^2``), Mercury's GR-minus-Newton rate with the Moon present
+    equal to the EMB value within 0.1 (measured 1e-7) and the Newtonian shift of its rate by the
+    Moon (-0.0025, reported).
 
 Conventions: AU, day, GM in AU^3/day^2, barycentric J2000-ecliptic frame, time in days
 since J2000.0 TDB; rates in arcsec per Julian century (36525 d).  The script never touches
@@ -83,11 +103,14 @@ from pathlib import Path
 import numpy as np
 
 from gravsim.analysis import (
+    element_series,
     fit_secular_rate,
     gr_precession_arcsec_per_century,
+    inclination_to_axis,
     perihelion_longitude_series,
     perihelion_passages,
     perihelion_rate_difference,
+    rate_arcsec_per_century,
     relative_energy_error,
     separation,
     state_to_elements,
@@ -99,18 +122,33 @@ from gravsim.constants import (
     AU_KM,
     C_AU_DAY,
     DAY_S,
+    DEG_PER_RAD,
+    GJ_SUN,
     GM_SUN,
     JULIAN_CENTURY_DAYS,
     JULIAN_YEAR_DAYS,
     LIGHT_DEFLECTION_LIMB_ARCSEC,
     MERCURY_PRECESSION_GR_ARCSEC_CY,
+    MERCURY_PRECESSION_J2_ARCSEC_CY,
+    MERCURY_PRECESSION_LT_ARCSEC_CY,
     MERCURY_PRECESSION_NEWTON_ARCSEC_CY,
     MERCURY_PRECESSION_OBSERVED_ARCSEC_CY,
+    MOON_NODE_RATE_DEG_YR,
+    MOON_PERIGEE_RATE_DEG_YR,
     PLANETS,
     R_SUN_AU,
+    SUN_J2,
+    SUN_POLE_ECLIPTIC,
 )
-from gravsim.data.horizons import load_j2000, load_reference_series
-from gravsim.forces import accel_newton, make_eih, make_newton_pn1
+from gravsim.data.horizons import load_j2000, load_moon_reference_series, load_reference_series
+from gravsim.forces import (
+    accel_newton,
+    combine,
+    make_eih,
+    make_j2,
+    make_lense_thirring,
+    make_newton_pn1,
+)
 from gravsim.integrators import integrate, integrate_scipy
 from gravsim.metric import null
 from gravsim.metric.schwarzschild import precession_per_orbit_1pn, precession_per_orbit_numeric
@@ -150,6 +188,19 @@ DEFLECTION_MEASUREMENTS: tuple[tuple[str, float, float], ...] = (
     ("1919 Príncipe", 1.61, 0.30),
     ("2004 VLBI", 0.9999 * LIGHT_DEFLECTION_LIMB_ARCSEC, 0.0002 * LIGHT_DEFLECTION_LIMB_ARCSEC),
 )
+# Phase 8: the competing effects (checks 16-18).
+J2_AMPLIFICATION = 1000.0  # J2 x 1000 for the Kaula-rate check
+LT_AMPLIFICATION = 1e5  # solar spin x 1e5 for the Lense-Thirring-rate check
+EXTRAS_YEARS = 10.0  # span of the amplified two-body runs
+EXTRAS_RATE_TOL = 0.03  # relative tolerance on the node and argument rates vs the formulas
+J2_TOL_ARCSEC_CY = 0.005  # real-size J2 advance of Mercury (0.028)
+MOON_YEARS = 10.0  # span of the Earth + Moon runs (the cached Horizons Moon series)
+MOON_SEPARATION_YEARS = 2.0  # window of the Moon-vs-Horizons separation check
+MOON_SEPARATION_TOL_KM = 500.0
+SIDEREAL_MONTH_DAYS = 27.321662
+DEG_PER_YEAR = DEG_PER_RAD * JULIAN_YEAR_DAYS  # rad/day -> degrees per Julian year
+ASTEROID_RING_GM = 1.2e-9 * GM_SUN  # main belt as a ring (Pitjeva & Pitjev 2018)
+ASTEROID_RING_AU = 2.7
 
 
 # ----------------------------------------------------------------------------- results
@@ -249,6 +300,111 @@ def rate_per_orbit_to_per_century(rad_per_orbit: float, period_days: float) -> f
     return rad_per_orbit * ARCSEC_PER_RAD * JULIAN_CENTURY_DAYS / period_days
 
 
+def equator_frame(pole: Sequence[float] = SUN_POLE_ECLIPTIC) -> np.ndarray:
+    """Rotation matrix (rows ``x, y, z``) of the frame whose ``z`` axis is ``pole``.
+
+    ``x`` points to the ascending node of the equator on the ecliptic (``z_ecl x pole``), so
+    the node and argument of an orbit in the rotated frame are the ones the Kaula and
+    Lense-Thirring formulas refer to; coordinates transform as ``r_eq = R @ r``.
+    """
+    z = np.asarray(pole, dtype=np.float64)
+    z = z / np.linalg.norm(z)
+    x = np.cross([0.0, 0.0, 1.0], z)
+    x /= np.linalg.norm(x)
+    return np.stack([x, np.cross(z, x), z])
+
+
+def rotate_trajectory(traj: Trajectory, rotation: np.ndarray) -> Trajectory:
+    """The same trajectory with every position and velocity rotated by ``rotation``."""
+    return Trajectory(
+        traj.t, traj.pos @ rotation.T, traj.vel @ rotation.T, traj.gm, traj.names, dict(traj.meta)
+    )
+
+
+def equatorial_rate_differences(
+    traj: Trajectory, newton: Trajectory, body: str = "Mercury"
+) -> dict[str, tuple[np.ndarray, np.ndarray, float, float]]:
+    """Differenced node and argument of ``body`` in the solar-equator frame, with their fits.
+
+    Returns ``{"raan": (t, d_angle, rate, err), "argp": ...}`` with the wrapped difference
+    ``angle(traj) - angle(newton)`` [rad] and the fitted rate in arcsec per Julian century.
+    """
+    rotation = equator_frame()
+    traj_eq, newton_eq = rotate_trajectory(traj, rotation), rotate_trajectory(newton, rotation)
+    out = {}
+    for key in ("raan", "argp"):
+        t, x_run = element_series(traj_eq, body, key)
+        _, x_newton = element_series(newton_eq, body, key)
+        diff = wrap_angle(x_run - x_newton)
+        fit = fit_secular_rate(t, diff)
+        out[key] = (
+            t,
+            diff,
+            float(fit.rate_arcsec_per_century),
+            float(fit.rate_err_arcsec_per_century),
+        )
+    return out
+
+
+def kaula_rates(a: float, e: float, inc: float, gm: float, j2: float) -> tuple[float, float]:
+    """First-order ``(dOmega/dt, domega/dt)`` [rad/day] of the node and argument from ``j2``."""
+    n_mean = math.sqrt(gm / a**3)
+    k = n_mean * j2 * (R_SUN_AU / (a * (1.0 - e * e))) ** 2
+    return -1.5 * k * math.cos(inc), 0.75 * k * (5.0 * math.cos(inc) ** 2 - 1.0)
+
+
+def lense_thirring_rates(a: float, e: float, inc: float, gj: float) -> tuple[float, float]:
+    """``(dOmega/dt, domega/dt)`` [rad/day] of the node and argument from a spin ``GJ``."""
+    k = gj / (C_AU_DAY**2 * a**3 * (1.0 - e * e) ** 1.5)
+    return 2.0 * k, -6.0 * k * math.cos(inc)
+
+
+def ring_precession_rate(gm_ring: float, a_ring: float, a: float, gm: float = GM_SUN) -> float:
+    """Secular advance ``(3/4) n (gm_ring/gm) (a/a_ring)^3`` [arcsec/cy] due to an outer ring."""
+    n_mean = math.sqrt(gm / a**3)
+    return float(rate_arcsec_per_century(0.75 * n_mean * (gm_ring / gm) * (a / a_ring) ** 3))
+
+
+def lunar_fits(traj: Trajectory) -> dict[str, float]:
+    """Sidereal month [d], perigee and node rates [deg/yr] of the Moon about the Earth."""
+    r, v = traj.relative("Moon", "Earth")
+    gm = float(traj.gm[traj.index("Earth")] + traj.gm[traj.index("Moon")])
+    el = state_to_elements(r, v, gm)
+    n_sidereal = fit_secular_rate(traj.t, el["varpi"] + el["M"]).rate
+    fit_varpi = fit_secular_rate(traj.t, el["varpi"])
+    fit_raan = fit_secular_rate(traj.t, el["raan"])
+    return {
+        "month": 2.0 * math.pi / n_sidereal,
+        "perigee": fit_varpi.rate * DEG_PER_YEAR,
+        "perigee_err": fit_varpi.rate_err * DEG_PER_YEAR,
+        "node": fit_raan.rate * DEG_PER_YEAR,
+        "node_err": fit_raan.rate_err * DEG_PER_YEAR,
+        "a_km": float(np.mean(el["a"])) * AU_KM,
+        "e": float(np.mean(el["e"])),
+        "inc_deg": float(np.mean(el["inc"])) * DEG_PER_RAD,
+    }
+
+
+def earth_moon_barycentre(traj: Trajectory) -> np.ndarray:
+    """Mass-weighted Earth + Moon position along a trajectory, shape (T, 3)."""
+    i_e, i_m = traj.index("Earth"), traj.index("Moon")
+    w = traj.gm[[i_e, i_m]] / traj.gm[[i_e, i_m]].sum()
+    return w[0] * traj.pos[:, i_e] + w[1] * traj.pos[:, i_m]
+
+
+def predicted_emb_drift_km(state: SystemState, span_days: float) -> tuple[float, float]:
+    """``(eps, 2 eps n a span)`` [-, km]: the along-track drift of the EMB point mass."""
+    i_e, i_m = state.index("Earth"), state.index("Moon")
+    w = state.gm[[i_e, i_m]] / state.gm[[i_e, i_m]].sum()
+    r, v = state.relative_to("Sun")
+    a_e = float(state_to_elements(r[i_e], v[i_e], GM_SUN + state.gm[i_e])["a"])
+    r_m, v_m = state.relative_to("Earth")
+    a_m = float(state_to_elements(r_m[i_m], v_m[i_m], state.gm[i_e] + state.gm[i_m])["a"])
+    eps = 0.75 * w[0] * w[1] * (a_m / a_e) ** 2
+    n_e = math.sqrt((GM_SUN + state.gm[i_e]) / a_e**3)
+    return float(eps), float(2.0 * eps * n_e * span_days * a_e * AU_KM)
+
+
 # ----------------------------------------------------------------------------- the checks
 @dataclass
 class Runs:
@@ -266,6 +422,14 @@ class Runs:
     eih_planet_rates: dict[str, tuple[float, float]] | None = None  # EIH-minus-Newton, N-body
     ppn_newton: Trajectory | None = None  # Sun + Mercury, Newton, PPN_YEARS
     ppn_two_body: dict[tuple[float, float], Trajectory] | None = None  # (beta, gamma) -> EIH run
+    extras_newton: Trajectory | None = None  # Sun + Mercury, Newton, EXTRAS_YEARS
+    extras_amplified: dict[str, Trajectory] | None = None  # "j2" (x1000), "lt" (x1e5) runs
+    extras_rates: dict[str, float] | None = None  # real-size J2 and LT advances of Mercury
+    moon_newton: Trajectory | None = None  # Sun + planets + Earth + Moon, Newton, MOON_YEARS
+    moon_gr: Trajectory | None = None  # same with the Sun's 1PN term
+    moon_horizons: Trajectory | None = None  # the cached Moon series over the same span
+    moon_fits: dict[str, float] | None = None  # lunar_fits of the Newton run
+    moon_shift: float = math.nan  # Newton(Earth + Moon) - Newton(EMB), Mercury [arcsec/cy]
 
 
 def check_two_body(years: float, runs: Runs, log: Callable[[str], None]) -> list[CheckResult]:
@@ -812,6 +976,245 @@ def check_light() -> list[CheckResult]:
     ]
 
 
+def check_extras(years: float, runs: Runs, log: Callable[[str], None]) -> list[CheckResult]:
+    """Checks 16 and 17: solar J2 and Lense-Thirring, real size over the span and amplified."""
+    if runs.two_body_newton is None:
+        raise RuntimeError("check_extras needs the two-body Newton run of check_two_body")
+    state = two_body_state()
+    sun = state.index("Sun")
+    newton = runs.two_body_newton
+    out: list[CheckResult] = []
+
+    # real sizes over the full span, differenced against the Newton run on the same grid
+    tic = time.perf_counter()
+    j2_real = run_dop853(state, combine(accel_newton, make_j2(central=sun)), newton.t)
+    lt_real = run_dop853(state, combine(accel_newton, make_lense_thirring(central=sun)), newton.t)
+    log(f"two-body J2 and Lense-Thirring runs ({years:g} yr): {time.perf_counter() - tic:.1f} s")
+    rate_j2, err_j2 = perihelion_rate_difference(j2_real, newton, "Mercury")
+    rate_lt, err_lt = perihelion_rate_difference(lt_real, newton, "Mercury")
+    runs.extras_rates = {"j2": rate_j2, "lt": rate_lt}
+    out.append(
+        CheckResult(
+            "extras_j2_real_minus_newton_mercury",
+            rate_j2,
+            MERCURY_PRECESSION_J2_ARCSEC_CY,
+            J2_TOL_ARCSEC_CY,
+            f"arcsec/cy, J2 = {SUN_J2:g}, {years:g} yr, OLS err {err_j2:.2g}",
+        )
+    )
+    out.append(
+        CheckResult(
+            "extras_lense_thirring_real_minus_newton_mercury",
+            rate_lt,
+            MERCURY_PRECESSION_LT_ARCSEC_CY,
+            REPORT_ONLY,
+            f"arcsec/cy, GJ = {GJ_SUN:.3g} AU^5/day^3, {years:g} yr, OLS err {err_lt:.2g} "
+            "(report only)",
+        )
+    )
+
+    # amplified effects over EXTRAS_YEARS: node and argument rates in the solar-equator frame
+    t_end = state.t + EXTRAS_YEARS * JULIAN_YEAR_DAYS
+    if newton.t[-1] >= t_end - 1e-9:
+        newton10 = truncate(newton, t_end)
+    else:
+        newton10 = run_dop853(state, accel_newton, daily_grid(state.t, EXTRAS_YEARS))
+    runs.extras_newton = newton10
+    tic = time.perf_counter()
+    j2_big = run_dop853(
+        state,
+        combine(accel_newton, make_j2(j2=J2_AMPLIFICATION * SUN_J2, central=sun)),
+        newton10.t,
+    )
+    lt_big = run_dop853(
+        state,
+        combine(accel_newton, make_lense_thirring(central=sun, scale=LT_AMPLIFICATION)),
+        newton10.t,
+    )
+    log(
+        f"amplified J2 and Lense-Thirring runs ({EXTRAS_YEARS:g} yr): "
+        f"{time.perf_counter() - tic:.1f} s"
+    )
+    runs.extras_amplified = {"j2": j2_big, "lt": lt_big}
+    el = osculating_elements(state, "Mercury")
+    r, v = state.relative_to("Sun")
+    merc = state.index("Mercury")
+    inc = float(inclination_to_axis(r[merc], v[merc], SUN_POLE_ECLIPTIC))
+    predictions = {
+        "j2": kaula_rates(el["a"], el["e"], inc, el["gm"], J2_AMPLIFICATION * SUN_J2),
+        "lt": lense_thirring_rates(el["a"], el["e"], inc, LT_AMPLIFICATION * GJ_SUN),
+    }
+    labels = {"j2": ("j2_x1000", "Kaula"), "lt": ("lense_thirring_x1e5", "LT formula")}
+    for key, traj in runs.extras_amplified.items():
+        fits = equatorial_rate_differences(traj, newton10)
+        tag, formula = labels[key]
+        for element, name, predicted in zip(
+            ("raan", "argp"), ("node", "argument"), predictions[key], strict=True
+        ):
+            _, _, rate, err = fits[element]
+            predicted_cy = float(rate_arcsec_per_century(predicted))
+            out.append(
+                CheckResult(
+                    f"extras_{tag}_{name}_over_{formula.split()[0].lower()}",
+                    rate / predicted_cy,
+                    1.0,
+                    EXTRAS_RATE_TOL,
+                    f"ratio; fit {rate:.4g} +- {err:.2g} vs {formula} {predicted_cy:.4g} "
+                    f"arcsec/cy, i = {math.degrees(inc):.2f} deg to the solar equator",
+                )
+            )
+    return out
+
+
+def check_moon(years: float, runs: Runs, log: Callable[[str], None]) -> list[CheckResult]:
+    """Check 18: Sun + planets + Earth + Moon against lunar theory, Horizons and the EMB runs."""
+    ref = load_moon_reference_series()
+    span = min(years, MOON_YEARS)
+    n = int(round(span * JULIAN_YEAR_DAYS))
+    t_eval = ref.t[: n + 1]
+    horizons = Trajectory(t_eval, ref.pos[: n + 1], ref.vel[: n + 1], ref.gm, ref.names)
+    split, emb = load_j2000(with_moon=True), load_j2000()
+    gr_law = make_newton_pn1(c=C_AU_DAY, central=split.index("Sun"))
+    tic = time.perf_counter()
+    split_newton = run_dop853(split, accel_newton, t_eval)
+    split_gr = run_dop853(split, gr_law, t_eval)
+    emb_newton = run_dop853(emb, accel_newton, t_eval)
+    emb_gr = run_dop853(emb, gr_law, t_eval)
+    log(
+        f"Earth + Moon runs ({split.n} bodies, {span:g} yr, Newton and 1PN, split and EMB): "
+        f"{time.perf_counter() - tic:.1f} s"
+    )
+    runs.moon_newton, runs.moon_gr, runs.moon_horizons = split_newton, split_gr, horizons
+
+    out: list[CheckResult] = []
+    fit = lunar_fits(split_newton)
+    ref_fit = lunar_fits(horizons)
+    runs.moon_fits = fit
+    out.append(
+        CheckResult(
+            "moon_sidereal_month_days",
+            fit["month"],
+            SIDEREAL_MONTH_DAYS,
+            0.05,
+            f"days, {span:g} yr; Horizons same span {ref_fit['month']:.5f}; "
+            f"a = {fit['a_km']:.0f} km, e = {fit['e']:.4f}, i = {fit['inc_deg']:.2f} deg",
+        )
+    )
+    out.append(
+        CheckResult(
+            "moon_perigee_rate_deg_yr",
+            fit["perigee"],
+            MOON_PERIGEE_RATE_DEG_YR,
+            1.5,
+            f"deg/yr, OLS err {fit['perigee_err']:.2g}; Horizons same span "
+            f"{ref_fit['perigee']:+.3f}",
+        )
+    )
+    out.append(
+        CheckResult(
+            "moon_node_rate_deg_yr",
+            fit["node"],
+            MOON_NODE_RATE_DEG_YR,
+            1.0,
+            f"deg/yr, OLS err {fit['node_err']:.2g}; Horizons same span {ref_fit['node']:+.3f}",
+        )
+    )
+    out.append(
+        CheckResult(
+            "moon_perigee_rate_minus_horizons_same_span",
+            fit["perigee"] - ref_fit["perigee"],
+            0.0,
+            0.3,
+            "deg/yr: the short-span bias is the same in the run and in the ephemeris",
+        )
+    )
+    out.append(
+        CheckResult(
+            "moon_node_rate_minus_horizons_same_span",
+            fit["node"] - ref_fit["node"],
+            0.0,
+            0.3,
+            "deg/yr",
+        )
+    )
+
+    # the Moon against Horizons over the first MOON_SEPARATION_YEARS
+    t_sep = split.t + min(span, MOON_SEPARATION_YEARS) * JULIAN_YEAR_DAYS
+    sep_newton = separation(truncate(split_newton, t_sep), truncate(horizons, t_sep), "Moon")
+    sep_gr = separation(truncate(split_gr, t_sep), truncate(horizons, t_sep), "Moon")
+    window = min(span, MOON_SEPARATION_YEARS)
+    out.append(
+        CheckResult(
+            "moon_vs_horizons_max_km_pn1",
+            float(sep_gr.max() * AU_KM),
+            0.0,
+            MOON_SEPARATION_TOL_KM,
+            f"km, Newton + 1PN, max over {window:g} yr",
+        )
+    )
+    out.append(
+        CheckResult(
+            "moon_vs_horizons_max_km_newton",
+            float(sep_newton.max() * AU_KM),
+            0.0,
+            REPORT_ONLY,
+            f"km, Newton alone, max over {window:g} yr (report only)",
+        )
+    )
+
+    # the EMB approximation: the real barycentre vs Horizons and vs the EMB run
+    bc_split = earth_moon_barycentre(split_gr)
+    bc_horizons = earth_moon_barycentre(horizons)
+    emb_pos = emb_gr.body("EMB")[0]
+    vs_horizons = np.linalg.norm(bc_split - bc_horizons, axis=1) * AU_KM
+    drift = np.linalg.norm(bc_split - emb_pos, axis=1) * AU_KM
+    eps, predicted = predicted_emb_drift_km(split, span * JULIAN_YEAR_DAYS)
+    out.append(
+        CheckResult(
+            "emb_split_barycentre_vs_horizons_max_km",
+            float(vs_horizons.max()),
+            0.0,
+            REPORT_ONLY,
+            f"km over {span:g} yr, Newton + 1PN (report only)",
+        )
+    )
+    out.append(
+        CheckResult(
+            "emb_point_mass_vs_split_barycentre_final_km",
+            float(drift[-1]),
+            predicted,
+            REPORT_ONLY,
+            f"km after {span:g} yr; predicted 2 eps n a t with eps = {eps:.2e} (report only)",
+        )
+    )
+
+    # Mercury: the GR signal does not care, the Newtonian rate shifts by -0.0025
+    rate_split, err_split = perihelion_rate_difference(split_gr, split_newton, "Mercury")
+    rate_emb, _ = perihelion_rate_difference(emb_gr, emb_newton, "Mercury")
+    shift, shift_err = perihelion_rate_difference(split_newton, emb_newton, "Mercury")
+    runs.moon_shift = shift
+    out.append(
+        CheckResult(
+            "mercury_pn1_minus_newton_with_moon_minus_emb_value",
+            rate_split - rate_emb,
+            0.0,
+            0.1,
+            f"arcsec/cy over {span:g} yr: {rate_split:.4f} +- {err_split:.2g} (Earth + Moon) vs "
+            f"{rate_emb:.4f} (EMB)",
+        )
+    )
+    out.append(
+        CheckResult(
+            "mercury_newton_rate_shift_moon_vs_emb",
+            shift,
+            -0.0025,
+            REPORT_ONLY,
+            f"arcsec/cy, OLS err {shift_err:.2g} (report only)",
+        )
+    )
+    return out
+
+
 def run_checks(
     years: float = 100.0, log: Callable[[str], None] = lambda s: None
 ) -> tuple[list[CheckResult], Runs]:
@@ -827,6 +1230,8 @@ def run_checks(
     results += check_rebound_oracle(runs, log)
     results += check_ppn(runs, log)
     results += check_light()
+    results += check_extras(years, runs, log)
+    results += check_moon(years, runs, log)
     return results, runs
 
 
@@ -1106,6 +1511,145 @@ def save_figures(runs: Runs, figdir: Path, log: Callable[[str], None]) -> list[P
     ax.set_title("Deflection versus impact parameter")
     ax.legend(fontsize=7)
     paths.append(_save(fig, figdir / "light_bending_rays.png"))
+
+    # 10. (Phase 8) Mercury's precession budget: every contribution on a log scale, the
+    #     modelled ones with the values measured by this script.
+    if runs.extras_rates is not None and runs.planet_rates is not None:
+        asteroid = ring_precession_rate(ASTEROID_RING_GM, ASTEROID_RING_AU, el_m["a"])
+        budget = [
+            ("planets (Newtonian)", MERCURY_PRECESSION_NEWTON_ARCSEC_CY, True),
+            ("General Relativity (1PN − Newton)", runs.planet_rates["Mercury"][0], True),
+            ("solar J₂ = 2.2e−7", runs.extras_rates["j2"], True),
+            ("Earth + Moon as bodies vs EMB", runs.moon_shift, True),
+            ("Lense–Thirring (solar spin)", runs.extras_rates["lt"], True),
+            ("asteroid belt (ring, analytic)", asteroid, False),
+        ]
+        budget = [b for b in budget if np.isfinite(b[1])]
+        fig, axes = figure_grid(1, panel=(7.5, 4.2))
+        ax = axes[0]
+        names = [b[0] for b in budget][::-1]
+        rates = np.array([b[1] for b in budget])[::-1]
+        colors = [
+            (PALETTE_BLUE if b[1] >= 0.0 else PALETTE_ORANGE) if b[2] else "0.6"
+            for b in budget
+        ][::-1]
+        bars = ax.barh(names, np.abs(rates), color=colors)
+        for bar, rate in zip(bars, rates, strict=True):
+            ax.text(
+                bar.get_width() * 1.15,
+                bar.get_y() + bar.get_height() / 2.0,
+                f"{rate:+.4g}″/cy",
+                va="center",
+                fontsize=8,
+            )
+        ax.axvline(0.01, color=PALETTE_INK, linestyle=":", linewidth=1.0)
+        ax.text(0.0105, len(budget) - 0.6, "ranging precision ~0.01″/cy", fontsize=7, rotation=90,
+                va="top", color=PALETTE_INK)
+        ax.set_xscale("log")
+        ax.set_xlim(5e-4, 5e3)
+        ax.set_xlabel("|rate| [arcsec per century]")
+        ax.set_title(
+            "Mercury's perihelion budget (orange = regression, grey = not modelled)", fontsize=10
+        )
+        paths.append(_save(fig, figdir / "precession_budget.png"))
+
+    # 11. (Phase 8) The Moon about the Earth in 3-D with its perigees marked (the line of
+    #     apsides turns by 40.7 deg/yr) next to the fitted perigee and node longitudes.
+    if runs.moon_newton is not None and runs.moon_fits is not None:
+        moon = runs.moon_newton
+        t_rel = moon.t - moon.t[0]
+        shown = t_rel <= 2.0 * JULIAN_YEAR_DAYS + 1e-9  # two years: 27 orbits, 81 deg of advance
+        r_geo, _ = moon.relative("Moon", "Earth")
+        r_km = r_geo[shown] * AU_KM
+        dist = np.linalg.norm(r_km, axis=1)
+        minima = np.flatnonzero((dist[1:-1] < dist[:-2]) & (dist[1:-1] < dist[2:])) + 1
+        fig = plt.figure(figsize=(11.0, 4.8), layout="constrained")
+        ax3 = fig.add_subplot(1, 2, 1, projection="3d")
+        cmap = plt.get_cmap("viridis")
+        t_shown = t_rel[shown]
+        for k in range(len(t_shown) - 1):
+            ax3.plot(
+                r_km[k : k + 2, 0], r_km[k : k + 2, 1], r_km[k : k + 2, 2],
+                color=cmap(t_shown[k] / t_shown[-1]), lw=0.8,
+            )
+        ax3.plot(
+            r_km[minima, 0], r_km[minima, 1], r_km[minima, 2], "o", color=PALETTE_ORANGE,
+            ms=4, label=f"perigees ({minima.size}), advancing {runs.moon_fits['perigee']:.1f}°/yr",
+        )
+        ax3.plot(
+            [0.0], [0.0], [0.0], marker="o", color=PALETTE_BLUE, ms=8, ls="none", label="Earth"
+        )
+        lim = float(np.abs(r_km).max()) * 1.05
+        ax3.set_xlim(-lim, lim)
+        ax3.set_ylim(-lim, lim)
+        ax3.set_zlim(-lim, lim)
+        ax3.set_box_aspect((1, 1, 1))
+        ax3.set_xlabel("x [km]")
+        ax3.set_ylabel("y [km]")
+        ax3.set_zlabel("z [km]")
+        ax3.view_init(elev=35.0, azim=-60.0)
+        ax3.legend(loc="upper left", fontsize=8)
+        ax3.set_title("The Moon about the Earth, 2 yr (ten-body Newton run)", fontsize=10)
+        ax2 = fig.add_subplot(1, 2, 2)
+        r_all, v_all = moon.relative("Moon", "Earth")
+        gm_em = float(moon.gm[moon.index("Earth")] + moon.gm[moon.index("Moon")])
+        el_moon = state_to_elements(r_all, v_all, gm_em)
+        for key, label, rate_deg in (
+            ("varpi", "longitude of perigee ϖ", runs.moon_fits["perigee"]),
+            ("raan", "longitude of the node Ω", runs.moon_fits["node"]),
+        ):
+            fit = fit_secular_rate(moon.t, el_moon[key])
+            plot_precession(
+                moon.t, el_moon[key], fit.rate, ax=ax2, units="deg",
+                label=f"{label}: {rate_deg:+.2f}°/yr",
+            )
+        ax2.set_ylabel("Δ angle [deg]")
+        ax2.set_title(
+            f"Lunar perigee and node, {(moon.t[-1] - moon.t[0]) / JULIAN_YEAR_DAYS:.0f} yr "
+            f"(secular {MOON_PERIGEE_RATE_DEG_YR:+.2f} / {MOON_NODE_RATE_DEG_YR:+.2f}°/yr)",
+            fontsize=10,
+        )
+        paths.append(_save(fig, figdir / "moon_orbit.png"))
+
+    # 12. (Phase 8) The amplified solar effects: differenced node and argument of Mercury in the
+    #     solar-equator frame for J2 x 1000 and J x 1e5 with the fits and the formulas.
+    if runs.extras_amplified is not None and runs.extras_newton is not None:
+        state2 = two_body_state()
+        r2, v2 = state2.relative_to("Sun")
+        merc = state2.index("Mercury")
+        inc = float(inclination_to_axis(r2[merc], v2[merc], SUN_POLE_ECLIPTIC))
+        predictions = {
+            "j2": kaula_rates(el_m["a"], el_m["e"], inc, el_m["gm"], J2_AMPLIFICATION * SUN_J2),
+            "lt": lense_thirring_rates(el_m["a"], el_m["e"], inc, LT_AMPLIFICATION * GJ_SUN),
+        }
+        titles = {
+            "j2": f"Solar oblateness, J₂ × {J2_AMPLIFICATION:g} (Kaula)",
+            "lt": f"Frame dragging, J × {LT_AMPLIFICATION:g} (Lense–Thirring)",
+        }
+        fig, axes = figure_grid(2, panel=(5.5, 4.0))
+        for ax, key in zip(axes, ("lt", "j2"), strict=True):
+            fits = equatorial_rate_differences(runs.extras_amplified[key], runs.extras_newton)
+            for element, symbol, predicted in zip(
+                ("raan", "argp"), ("ΔΩ (node)", "Δω (argument)"), predictions[key], strict=True
+            ):
+                t, diff, rate, _ = fits[element]
+                plot_precession(
+                    t, diff, rate / (ARCSEC_PER_RAD * JULIAN_CENTURY_DAYS), ax=ax,
+                    label=f"{symbol}: fit {rate:+.4g}″/cy",
+                )
+                t_yr = (t - t[0]) / JULIAN_YEAR_DAYS
+                ax.plot(
+                    t_yr, predicted * ARCSEC_PER_RAD * (t - t[0]), ":", color="0.4", lw=1.2,
+                    label=f"formula {float(rate_arcsec_per_century(predicted)):+.4g}″/cy",
+                )
+            ax.legend(fontsize=7, loc="center left")
+            ax.set_ylabel("Δ angle [arcsec]")
+            ax.set_title(titles[key], fontsize=10)
+        fig.suptitle(
+            "Sun + Mercury: (Newton + extra) − Newton in the solar-equator frame, "
+            f"{EXTRAS_YEARS:g} yr"
+        )
+        paths.append(_save(fig, figdir / "lense_thirring_amplified.png"))
 
     log(f"saved {len(paths)} figures to {figdir}")
     return paths

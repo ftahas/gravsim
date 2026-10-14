@@ -2,10 +2,11 @@
 
 ``labs.py`` is imported from its path (``app/`` is not a package).  The back-end tests need
 only the gravsim package; the ``AppTest`` smoke tests run the actual script headlessly with
-default widget values, once per lab (all six), and are skipped when streamlit or plotly is not
-installed.  Labs 5 and 6 live in ``app/lab_ppn.py`` and ``app/lab_light.py``; their back ends
-are tested in depth in ``tests/test_lab_ppn.py`` and ``tests/test_lab_light.py`` and only
-smoke-tested here (import, one call each, the wiring of the script).  No network.
+default widget values, once per lab (all seven), and are skipped when streamlit or plotly is
+not installed.  Labs 5, 6 and 7 live in ``app/lab_ppn.py``, ``app/lab_light.py`` and
+``app/lab_extras.py``; their back ends are tested in depth in ``tests/test_lab_ppn.py``,
+``tests/test_lab_light.py`` and ``tests/test_lab_extras.py`` and only smoke-tested here
+(import, one call each, the wiring of the script).  No network.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ def _load(name: str):
 labs = _load("labs")
 lab_ppn = _load("lab_ppn")
 lab_light = _load("lab_light")
+lab_extras = _load("lab_extras")
 LAB_NAMES = (
     "1 · Integrator lab",
     "2 · Solar system: Newton vs GR",
@@ -45,6 +47,7 @@ LAB_NAMES = (
     "4 · Effective-potential explorer",
     "5 · PPN playground",
     "6 · Light-bending lab",
+    "7 · Competing effects",
 )
 
 
@@ -186,12 +189,35 @@ def test_lab_light_backend_smoke():
     assert len(bundle.paths) == 4 and bundle.captured.size == 0
 
 
+def test_lab_extras_backend_smoke():
+    """Competing-effects back end: Kaula and Lense-Thirring formulas, the budget, one run."""
+    assert callable(lab_extras.render)
+    a, e, inc, gm = 0.3871, 0.2056, math.radians(3.38), C.GM_SUN
+    raan_j2, argp_j2 = lab_extras.kaula_rates(a, e, inc, gm)
+    varpi_j2 = (raan_j2 + argp_j2) * C.ARCSEC_PER_RAD * C.JULIAN_CENTURY_DAYS
+    assert varpi_j2 == pytest.approx(C.MERCURY_PRECESSION_J2_ARCSEC_CY, abs=0.002)
+    raan_lt, argp_lt = lab_extras.lense_thirring_rates(a, e, inc)
+    varpi_lt = (raan_lt + argp_lt) * C.ARCSEC_PER_RAD * C.JULIAN_CENTURY_DAYS
+    assert varpi_lt == pytest.approx(C.MERCURY_PRECESSION_LT_ARCSEC_CY, abs=0.0005)
+    assert raan_lt > 0.0 > argp_lt and raan_j2 < 0.0 < argp_j2
+    budget = lab_extras.precession_budget()
+    assert [b.name.split(" ")[0] for b in budget][:2] == ["planets", "General"]
+    modelled = sum(b.rate for b in budget if b.modelled)
+    assert modelled == pytest.approx(574.6, abs=0.1)
+    runs = lab_extras.extras_runs(1.0, j2_scale=1000.0, lt_scale=0.0)
+    res = lab_extras.node_perigee_rates(runs)
+    assert runs.newton.names == ("Sun", "Mercury") and runs.j2 == pytest.approx(2.2e-4)
+    assert res.raan_rate == pytest.approx(res.predicted["raan"], rel=0.05)  # one-year span
+    assert res.argp_rate == pytest.approx(res.predicted["argp"], rel=0.05)
+
+
 # --------------------------------------------------------------------------- the app itself
-def test_app_script_lists_six_labs():
+def test_app_script_lists_seven_labs():
     source = (APP_DIR / "streamlit_app.py").read_text(encoding="utf-8")
     for name in LAB_NAMES:
         assert f'"{name}"' in source, name
     assert "lab_ppn.render" in source and "lab_light.render" in source
+    assert "lab_extras.render" in source
 
 
 @pytest.mark.parametrize("lab_index", range(len(LAB_NAMES)))
@@ -222,8 +248,19 @@ def test_streamlit_app_runs_each_lab_headless(lab_index):
         assert at.header[0].value.startswith("PPN playground")
         at.slider[0].set_value(0.5).run()  # beta = 1/2: factor (2 + 2 - 0.5)/3 = 1.167
         assert at.metric[3].value == "1.167"
-    else:
+    elif lab_index == 5:
         assert at.header[0].value.startswith("Light-bending lab")
         assert at.metric[0].value.startswith("1.751")  # exact limb deflection, arcsec
         at.toggle[0].set_value(False).run()  # one-way Shapiro delay
+    else:
+        assert at.header[0].value.startswith("Competing effects")
+        assert len(at.toggle) == 3 and len(at.slider) == 3
+        # defaults J2 x 1000, J x 1e5, 10 yr: the node formula reads +73.03 arcsec/cy
+        # (+100.92 frame dragging, -27.89 J2) and the fit agrees with it; the lunar readouts
+        # appear with the Moon toggle (test_lab_extras)
+        assert at.metric[1].value.startswith("+73.0")
+        fit = float(at.metric[0].value.split("±")[0])
+        assert fit == pytest.approx(73.03, rel=0.03)
+        at.toggle[2].set_value(False).run()  # frame dragging off: the node is J2's alone
+        assert at.metric[1].value.startswith("-27.8")
     assert not at.exception, at.exception

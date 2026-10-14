@@ -1,13 +1,15 @@
 """Tests for the lesson notebooks in ``notebooks/``.
 
-Fast checks (structure): the eight lessons of Phases 1-6 exist, are valid nbformat 4, start
+Fast checks (structure): the nine lessons of Phases 1-8 exist, are valid nbformat 4, start
 with a markdown title, state the physics before the first code cell, contain no stored
 outputs, use no IPython magics, and every code cell parses as Python.
 
 Slow check (execution, ``@pytest.mark.slow``): each notebook is executed from scratch with
 ``nbclient`` in the ``notebooks/`` directory (so the cached ephemerides are the only data
-source; no network) and must run without error.  The whole set takes about two minutes
-(lessons 06 and 07 integrate the nine-body EIH equations for ten years).
+source; no network) and must run without error.  The whole set takes about two and a half
+minutes (lessons 06 and 07 integrate the nine-body EIH equations for ten years; lesson 09
+integrates Sun + planets + Earth + Moon for ten years and the amplified J2 and Lense-Thirring
+runs).
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ LESSONS = (
     "06_le_verrier_vulcan_einstein.ipynb",
     "07_ppn_playground.ipynb",
     "08_eddington_1919.ipynb",
+    "09_competing_effects.ipynb",
 )
 
 

@@ -23,12 +23,15 @@ physics plan is `ROADMAP.md`.
 | 5 | EIH N-body 1PN | what JPL ephemerides do; 532 + 43 ≈ 575″/century; agrees with level 4 to 10⁻⁵″/cy | `forces/eih.py` |
 | 6 | PPN parameters β, γ | precession ∝ (2 + 2γ − β)/3; "what if gravity were a different theory?" | `forces/pn1.py`, `forces/eih.py` (both take them) |
 | 7 | light (null geodesics) | Eddington 1919: 1.75″ at the limb; capture and shadow; Shapiro delay | `metric/null.py` |
+| 8 | the competitors: solar J₂, frame dragging, the Moon | the budget at the 0.01″ level: +0.028, −0.002, −0.0025″/century; node vs argument tells them apart | `forces/extras.py`, `data/horizons.py` (`with_moon=True`) |
 
-All seven levels are implemented, validated and taught in Lessons 01–08; the theory pages are
+All eight levels are implemented, validated and taught in Lessons 01–09; the theory pages are
 [Newton](theory/newton.md), [Integrators](theory/integrators.md),
 [Measurement](theory/measurement.md), [1PN](theory/pn1.md),
-[Schwarzschild](theory/schwarzschild.md), [EIH](theory/eih.md), [PPN](theory/ppn.md) and
-[Light](theory/light.md).
+[Schwarzschild](theory/schwarzschild.md), [EIH](theory/eih.md), [PPN](theory/ppn.md),
+[Light](theory/light.md) and [What competes with GR](theory/extras.md). The
+[Streamlit lab](app.md) has one lab per lesson and the [Three.js front end](web.md) shows
+five precomputed scenarios in the browser.
 
 ## Conventions used throughout
 
@@ -37,7 +40,9 @@ All seven levels are implemented, validated and taught in Lessons 01–08; the t
   scale it down.
 * **Frame**: solar-system barycentre, J2000 ecliptic; $t$ in days since J2000.0 TDB.
 * **Bodies**: Sun + 8 planets (Earth = Earth–Moon barycentre, outer planets = system
-  barycentres). The Moon, Pluto and the asteroids are out of scope (≈0.1″/century on Mercury).
+  barycentres); Lesson 09 and the `earth_moon` scenarios use Earth and Moon as separate bodies
+  (`load_j2000(with_moon=True)`). Pluto and the asteroids stay out (≈0.001–0.01″/century on
+  Mercury, quoted analytically).
 * **Visualisation**: orbits in 3-D (matplotlib for static figures, plotly in the app);
   measurement plots (precession versus time, residuals) in 2-D.
 
@@ -45,10 +50,12 @@ All seven levels are implemented, validated and taught in Lessons 01–08; the t
 
 ```bash
 scripts/setup_env.sh                              # uv venv + editable install (dev extras)
-.venv/bin/python -m pytest -q                     # fast suite (~1 min)
-.venv/bin/python -m pytest -q -m slow             # century runs + notebook execution (~4 min)
-.venv/bin/python scripts/validate.py              # all 47 validation checks + figures/ (~75 s)
+.venv/bin/python -m pytest -q                     # fast suite (~2 min)
+.venv/bin/python -m pytest -q -m slow             # century runs + notebook execution (~6 min)
+.venv/bin/python -m pytest -q -m web              # browser tests of the web front end
+.venv/bin/python scripts/validate.py              # all 64 validation checks + figures/ (~2.5 min)
 .venv/bin/jupyter lab notebooks/                  # the lessons
 uv pip install -e ".[app]" && .venv/bin/streamlit run app/streamlit_app.py   # the lab
+uv pip install -e ".[web]" && .venv/bin/python -m gravsim.web                # the web front end
 uv pip install -e ".[docs]" && .venv/bin/mkdocs serve                       # these pages
 ```

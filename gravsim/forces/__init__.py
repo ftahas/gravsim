@@ -9,6 +9,9 @@ summed with ``combine``.
   (``make_pn1`` = correction only, ``make_newton_pn1`` = Newton + correction).
 * ``eih``: full Einstein-Infeld-Hoffmann N-body 1PN law, PPN-parametrised, Newtonian term
   included (``make_eih``).
+* ``extras``: corrections of one spinning central body that compete with GR, the quadrupole
+  field of its oblateness (``make_j2``) and Lense-Thirring frame dragging
+  (``make_lense_thirring``), both with the momentum-conserving reaction on the central body.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import numpy as np
 
 from gravsim.forces.eih import make_eih
+from gravsim.forces.extras import make_j2, make_lense_thirring
 from gravsim.forces.newton import (
     HAVE_NUMBA,
     AccelFn,
@@ -33,6 +37,8 @@ __all__ = [
     "accel_newton_numpy",
     "combine",
     "make_eih",
+    "make_j2",
+    "make_lense_thirring",
     "make_newton_pn1",
     "make_pn1",
 ]

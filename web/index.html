@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gravsim — Newton vs Einstein in 3-D</title>
+  <meta name="description" content="Three.js viewer for the gravsim scenarios: the solar system under Newton and GR, the c/100 rosette, Schwarzschild geodesics and light rays.">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header id="topbar">
+    <button id="toggle-controls" class="bar-btn" type="button" aria-controls="controls" aria-expanded="false">Controls</button>
+    <div id="topbar-title">
+      <span class="brand">gravsim</span>
+      <span id="topbar-scenario" class="muted"></span>
+    </div>
+    <button id="toggle-info" class="bar-btn" type="button" aria-controls="info" aria-expanded="false">Info</button>
+  </header>
+
+  <aside id="controls" aria-label="Controls">
+    <section class="group">
+      <label class="field">
+        <span class="field-name">Scenario</span>
+        <select id="scenario-select" disabled>
+          <option value="">loading…</option>
+        </select>
+      </label>
+      <div id="source" class="muted small"></div>
+    </section>
+
+    <section class="group" id="group-playback">
+      <div class="row">
+        <button id="play" class="btn primary" type="button" disabled>Play</button>
+        <button id="step-back" class="btn" type="button" title="Back one sample" disabled>&#9664;</button>
+        <button id="step-fwd" class="btn" type="button" title="Forward one sample" disabled>&#9654;</button>
+        <button id="rewind" class="btn" type="button" title="Rewind" disabled>&#9198;</button>
+      </div>
+      <label class="field">
+        <span class="field-name">Speed <output id="speed-out">×1</output></span>
+        <input id="speed" type="range" min="-2" max="2.5" step="0.05" value="0">
+      </label>
+      <label class="field">
+        <span class="field-name">Time</span>
+        <input id="time" type="range" min="0" max="10000" step="1" value="0">
+      </label>
+      <div id="time-out" class="readout">—</div>
+    </section>
+
+    <section class="group" id="group-model">
+      <div class="field-name">Model</div>
+      <div class="seg" role="radiogroup" aria-label="Model">
+        <label><input type="radio" name="model" value="newton"> Newton</label>
+        <label><input type="radio" name="model" value="gr" checked> GR</label>
+        <label><input type="radio" name="model" value="both"> both</label>
+      </div>
+      <label class="field">
+        <span class="field-name">Amplification k <output id="amp-out">1</output></span>
+        <input id="amp" type="range" min="0" max="5" step="0.01" value="0">
+      </label>
+      <div id="amp-readout" class="readout small">displayed = Newton + k · (GR − Newton)</div>
+    </section>
+
+    <section class="group" id="group-frame">
+      <div class="field-name">Frame</div>
+      <div class="seg" role="radiogroup" aria-label="Frame">
+        <label><input type="radio" name="frame" value="bary" checked> barycentric</label>
+        <label><input type="radio" name="frame" value="helio"> heliocentric</label>
+        <label id="frame-earth-label" hidden><input type="radio" name="frame" value="earth"> Earth</label>
+      </div>
+    </section>
+
+    <section class="group" id="group-display">
+      <label class="field">
+        <span class="field-name">Trail <output id="trail-out">—</output></span>
+        <input id="trail" type="range" min="0" max="1" step="0.005" value="0.5">
+      </label>
+      <label class="check"><input id="paths" type="checkbox" checked> Full paths</label>
+      <label class="check"><input id="labels" type="checkbox" checked> Labels</label>
+      <label class="check"><input id="grid" type="checkbox" checked> Ecliptic grid</label>
+      <label class="check" title="Markers at the perihelia of the displayed orbit (local minima of the Sun–Mercury distance, refined between samples), up to the current time"><input id="peri" type="checkbox"><span id="peri-label"> Perihelion trail (Mercury)</span></label>
+    </section>
+
+    <section class="group" id="group-camera">
+      <div class="field-name">Camera</div>
+      <div class="row wrap" id="camera-presets">
+        <button class="btn" type="button" data-preset="inner">inner</button>
+        <button class="btn" type="button" data-preset="outer">outer</button>
+        <button class="btn" type="button" data-preset="top">top</button>
+        <button class="btn" type="button" data-preset="edge">edge</button>
+        <button class="btn" type="button" data-preset="earth" id="preset-earth" hidden>earth</button>
+      </div>
+      <div class="muted small">drag to orbit · wheel to zoom · right-drag to pan · space = play/pause</div>
+    </section>
+  </aside>
+
+  <main id="stage">
+    <div id="canvas-host"></div>
+    <div id="status" role="status" aria-live="polite">
+      <div class="status-box">
+        <div class="spinner" aria-hidden="true"></div>
+        <div id="status-text">Loading…</div>
+        <pre id="status-detail" hidden></pre>
+      </div>
+    </div>
+  </main>
+
+  <aside id="info" aria-label="Information">
+    <h1 id="info-title">gravsim</h1>
+    <p id="info-blurb" class="muted"></p>
+    <p id="info-explain"></p>
+    <section id="info-legend" hidden>
+      <h2>Rays</h2>
+      <table id="legend-table"><tbody></tbody></table>
+    </section>
+    <section id="info-numbers">
+      <h2>Numbers</h2>
+      <dl id="numbers"></dl>
+    </section>
+    <section id="info-notes" hidden>
+      <h2>Notes</h2>
+      <div id="notes"></div>
+    </section>
+    <section id="info-params" hidden>
+      <h2>Parameters</h2>
+      <dl id="params"></dl>
+    </section>
+    <section id="info-arrays" hidden>
+      <h2>Arrays</h2>
+      <dl id="arrays"></dl>
+    </section>
+  </aside>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

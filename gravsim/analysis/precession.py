@@ -10,6 +10,18 @@ constant; perturbations make it drift.  The drift has a periodic part (planetary
 numerical noise) and a secular part ``varpi(t) ~ varpi_0 + rate * t``; the secular rate is the
 "precession of the perihelion".
 
+Element series.  ``element_series`` returns any osculating element of
+``kepler.state_to_elements`` (``a, e, inc, raan, argp, nu, M, period, varpi``) along the same
+relative state, so the node (``raan``) and argument of perihelion (``argp``) can be tracked
+separately when a perturbation moves them in opposite senses (solar oblateness, frame dragging;
+``gravsim.forces.extras``).  Elements are referred to the frame of the trajectory (the J2000
+ecliptic for Horizons-based runs); secular rates that the theory quotes "relative to the
+central body's equator" (Kaula, Lense-Thirring) need the state rotated into a frame whose
+``z`` axis is the spin axis before the elements are taken, i.e. a trajectory with
+``pos @ R.T``, ``vel @ R.T`` where the rows of ``R`` are an orthonormal triad ending with
+``constants.SUN_POLE_ECLIPTIC``.  Inclinations alone do not need the rotation:
+``elements.inclination_to_axis``.
+
 Perihelion passages.  A passage is a strict local minimum of ``|r(t)|`` on the sampled series,
 refined by the vertex of the parabola through the three samples around the minimum.  Note that
 these minima are spaced by the *anomalistic* period, which differs from the sidereal period by the
@@ -40,12 +52,14 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from gravsim.analysis.elements import _norm, perihelion_longitude
+from gravsim.analysis.kepler import state_to_elements
 from gravsim.bodies import Trajectory
 from gravsim.constants import ARCSEC_PER_RAD, C_AU_DAY, JULIAN_CENTURY_DAYS
 
 __all__ = [
     "SecularFit",
     "perihelion_longitude_series",
+    "element_series",
     "perihelion_passages",
     "fit_secular_rate",
     "rate_arcsec_per_century",
@@ -83,6 +97,48 @@ def perihelion_longitude_series(
     """
     r, v, gm = _relative_with_gm(traj, body, central)
     return traj.t.copy(), perihelion_longitude(r, v, gm)
+
+
+def element_series(
+    traj: Trajectory, body: str, key: str, central: str = "Sun"
+) -> tuple[np.ndarray, np.ndarray]:
+    """One osculating element of ``body`` about ``central`` along a trajectory.
+
+    Uses the relative state ``r = r_body - r_central``, ``v = v_body - v_central`` with
+    ``gm = gm[central] + gm[body]``, exactly like ``perihelion_longitude_series`` (and
+    ``key="varpi"`` reproduces it).  Angles come wrapped to ``(-pi, pi]``; unwrap them with
+    ``fit_secular_rate`` (or ``numpy.unwrap``) before fitting a rate.  The elements refer to the
+    frame of ``traj``; see the module docstring for rates quoted relative to another equator.
+
+    Parameters
+    ----------
+    traj : Trajectory
+        Barycentric trajectory containing both bodies.
+    body, central : str
+        Body names.
+    key : str
+        Any key of ``kepler.state_to_elements``: ``"a"`` [AU], ``"e"``, ``"inc"``, ``"raan"``,
+        ``"argp"``, ``"nu"``, ``"M"``, ``"varpi"`` [rad] or ``"period"`` [day].
+
+    Returns
+    -------
+    t : ndarray, shape (T,)
+        Copy of the trajectory times [day].
+    values : ndarray, shape (T,)
+        The requested element at every sample.
+
+    Raises
+    ------
+    KeyError
+        If ``key`` is not an element name (or a body name is unknown).
+    ValueError
+        If some sample is not an elliptic orbit (``state_to_elements``).
+    """
+    r, v, gm = _relative_with_gm(traj, body, central)
+    elements = state_to_elements(r, v, gm)
+    if key not in elements:
+        raise KeyError(f"unknown element {key!r}; choose from {tuple(elements)}")
+    return traj.t.copy(), np.asarray(elements[key], dtype=np.float64)
 
 
 def perihelion_passages(

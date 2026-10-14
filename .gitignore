@@ -11,3 +11,4 @@ figures/*.png
 !figures/.gitkeep
 *.bsp
 site/
+web/data/

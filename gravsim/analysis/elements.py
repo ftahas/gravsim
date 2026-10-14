@@ -22,6 +22,12 @@ Astrodynamics*, sec. 2.4; Vallado 2013, *Fundamentals of Astrodynamics and Appli
 * longitude of perihelion           ``varpi = raan + argp``  (a "dog-leg" angle, but continuous
   and well conditioned when ``inc -> 0``, where ``raan`` and ``argp`` separately are not)
 
+Inclination to an arbitrary axis.  The classical ``inc`` is the angle between ``h`` and ``+z``;
+``inclination_to_axis(r, v, axis)`` is the same angle measured from any unit vector,
+``atan2(|h x axis|, h . axis)`` in ``[0, pi]``.  With ``axis = constants.SUN_POLE_ECLIPTIC`` it
+gives the inclination to the solar equator that the J2 and Lense-Thirring rates refer to
+(Mercury: 3.38 deg, versus 7.0 deg to the ecliptic).
+
 Degenerate cases: for an equatorial orbit (``|n| = 0``, i.e. ``inc = 0`` or ``pi``) the node is
 undefined and is taken along +x, so that ``varpi = atan2(e_y, e_x)`` in the prograde case.  For a
 circular orbit (``e = 0``) the perihelion is undefined and ``argp = 0`` (``varpi = raan``).
@@ -42,6 +48,7 @@ __all__ = [
     "node_vector",
     "lrl_vector",
     "perihelion_longitude",
+    "inclination_to_axis",
 ]
 
 NODE_TOL = 1e-14
@@ -176,3 +183,37 @@ def perihelion_longitude(r: ArrayLike, v: ArrayLike, gm: ArrayLike) -> np.ndarra
     raan = np.arctan2(n_hat[..., 1], n_hat[..., 0])
     argp = np.arctan2(_dot(np.cross(n_hat, e_hat), h_hat), _dot(n_hat, e_hat))
     return wrap_angle(raan + argp)
+
+
+def inclination_to_axis(r: ArrayLike, v: ArrayLike, axis: ArrayLike) -> np.ndarray:
+    """Angle between the orbital angular momentum ``h = r x v`` and a reference axis.
+
+    ``atan2(|h x axis|, h . axis)``, the inclination of the orbit to the plane perpendicular to
+    ``axis``; for ``axis = (0, 0, 1)`` it equals the classical ``inc`` of
+    ``kepler.state_to_elements``, for ``axis = constants.SUN_POLE_ECLIPTIC`` it is the
+    inclination to the solar equator.
+
+    Parameters
+    ----------
+    r, v : array_like, shape (..., 3)
+        Relative position [AU] and velocity [AU/day].
+    axis : array_like, shape (3,)
+        Reference direction; normalised internally, must be non-zero.
+
+    Returns
+    -------
+    ndarray, shape (...)
+        Inclination in radians, in ``[0, pi]`` (``> pi/2`` for retrograde motion about
+        ``axis``).
+
+    Raises
+    ------
+    ValueError
+        If ``axis`` is not a non-zero 3-vector.
+    """
+    axis = np.asarray(axis, dtype=np.float64)
+    if axis.shape != (3,) or not np.all(np.isfinite(axis)) or _norm(axis) == 0.0:
+        raise ValueError("axis must be a finite, non-zero 3-vector")
+    n = _unit(axis)
+    h = specific_h(r, v)
+    return np.arctan2(_norm(np.cross(h, n)), _dot(h, n))

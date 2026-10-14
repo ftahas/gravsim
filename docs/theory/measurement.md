@@ -75,3 +75,5 @@ four orders of magnitude below the GR signal and $400\times$ below the ROADMAP t
 $0.5$″/cy. Fixed-step leapfrog and Yoshida4 at half-day steps give $-2\times10^5$ and
 $+2.6\times10^3$″/cy: they can only be used in differenced mode, where the spurious part
 cancels (Lesson 02's "which planet does what" table does exactly that).
+
+The same toolkit measures the node $\Omega$ and the argument $\omega$ separately (`analysis.precession.element_series`), which is how [What competes with GR](extras.md) tells the oblate Sun and frame dragging apart from GR.

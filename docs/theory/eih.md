@@ -204,3 +204,5 @@ nine-body run costs $2.3$ s against $0.5$ s for the numba Newtonian kernel.
 * Blanchet, *Living Rev. Relativ.* 17, 2 (2014), §9.
 * Robertson, *Ann. Math.* 39, 101 (1938).
 * Tamayo, Rein, Shi & Hernandez, *MNRAS* 491, 2885 (2020): REBOUNDx `gr_full`.
+
+The $+0.025''$/cy residual of the Horizons − EIH comparison is accounted for term by term in [What competes with GR](extras.md).

@@ -41,7 +41,23 @@ Physics
   ``(1 + gamma) GM/c^3 ln[(r_e + r_r + R)/(r_e + r_r - R)]`` = 124 microseconds and the exact
   null-geodesic transit agrees with it to 1 percent (measured 1e-4).
 
-Fast tests use ten-year (or 50-orbit) runs and finish in ~20 s; the century-long versions are
+* Competing effects (Phase 8): Sun + Mercury with the solar quadrupole (``forces.extras.make_j2``,
+  ``J2 = 2.2e-7``) advances the perihelion by +0.028 +- 0.005 arcsec/century relative to Newton
+  (measured 0.0278 already over ten years, 0.0278 over the century); with ``J2 x 1000`` the
+  node and argument rates in the solar-equator frame match Kaula's first-order formulas to 3 %
+  (measured 1e-4).  Lense-Thirring frame dragging with the solar spin ``x 1e5`` gives the node
+  ``2 GJ/(c^2 a^3 (1-e^2)^1.5)`` and the argument ``-6 GJ cos i/(...)`` to 3 % (1e-4); at the
+  real size the difference against Newton over a century is -0.0020 arcsec/century (slow).
+* The Moon (Phase 8): Sun + planets + Earth + Moon on the daily grid of the cached Horizons
+  Moon series: sidereal month 27.32 +- 0.05 d, perigee +40.7 +- 1.5 and node -19.3 +- 1.0 deg/yr
+  over ten years (+-3 / +-2 over two: the long-period lunar inequalities bias short spans, and
+  the Horizons series fitted over the same span shows the same bias to 0.3 deg/yr); the Moon
+  within 500 km of Horizons over two years (38 km with 1PN, 157 km Newton); the EMB point mass
+  drifts from the real Earth-Moon barycentre by ``2 eps n a t`` ~ 110 km/yr (reported); Mercury's
+  GR-minus-Newton rate with the Moon present equals the EMB value (1e-7 over ten years, held to
+  0.1) while its Newtonian rate shifts by -0.0025 arcsec/century.
+
+Fast tests use ten-year (or 50-orbit) runs and finish in ~30 s; the century-long versions are
 marked ``@pytest.mark.slow``.
 """
 
@@ -51,14 +67,18 @@ import numpy as np
 import pytest
 
 from gravsim.analysis import (
+    element_series,
     fit_secular_rate,
     gr_precession_arcsec_per_century,
+    inclination_to_axis,
     perihelion_longitude_series,
     perihelion_passages,
     perihelion_rate_difference,
+    rate_arcsec_per_century,
     relative_energy_error,
     separation,
     state_to_elements,
+    wrap_angle,
 )
 from gravsim.bodies import SystemState, Trajectory
 from gravsim.constants import (
@@ -66,17 +86,32 @@ from gravsim.constants import (
     AU_KM,
     C_AU_DAY,
     DAY_S,
+    DEG_PER_RAD,
+    GJ_SUN,
     GM_SUN,
     JULIAN_CENTURY_DAYS,
     JULIAN_YEAR_DAYS,
     LIGHT_DEFLECTION_LIMB_ARCSEC,
     MERCURY_PRECESSION_GR_ARCSEC_CY,
+    MERCURY_PRECESSION_J2_ARCSEC_CY,
+    MERCURY_PRECESSION_LT_ARCSEC_CY,
     MERCURY_PRECESSION_NEWTON_ARCSEC_CY,
     MERCURY_PRECESSION_OBSERVED_ARCSEC_CY,
+    MOON_NODE_RATE_DEG_YR,
+    MOON_PERIGEE_RATE_DEG_YR,
     R_SUN_AU,
+    SUN_J2,
+    SUN_POLE_ECLIPTIC,
 )
-from gravsim.data.horizons import load_j2000, load_reference_series
-from gravsim.forces import accel_newton, make_eih, make_newton_pn1
+from gravsim.data.horizons import load_j2000, load_moon_reference_series, load_reference_series
+from gravsim.forces import (
+    accel_newton,
+    combine,
+    make_eih,
+    make_j2,
+    make_lense_thirring,
+    make_newton_pn1,
+)
 from gravsim.integrators import integrate, integrate_scipy
 from gravsim.metric import null
 from gravsim.metric.schwarzschild import precession_per_orbit_1pn, precession_per_orbit_numeric
@@ -90,6 +125,9 @@ FIXED_DT = 0.5
 PPN_CASES = [(0.0, 1.0), (1.0, 0.0), (2.0, 1.0)]
 EARTH_AU, MARS_AU = 1.0, 1.5237  # mean distances for the Shapiro geometry
 MICROSECOND_DAYS = 1e-6 / DAY_S
+J2_AMPLIFICATION, LT_AMPLIFICATION = 1000.0, 1e5  # Phase 8 amplified two-body runs
+SIDEREAL_MONTH_DAYS = 27.321662
+DEG_PER_YEAR = DEG_PER_RAD * JULIAN_YEAR_DAYS
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -179,6 +217,69 @@ def horizons_separations_km(
     return sep_n, sep_g
 
 
+def equator_frame(pole=SUN_POLE_ECLIPTIC) -> np.ndarray:
+    """Rotation (rows x, y, z) into the frame whose z axis is the solar pole; r_eq = R @ r."""
+    z = np.asarray(pole, dtype=np.float64)
+    z = z / np.linalg.norm(z)
+    x = np.cross([0.0, 0.0, 1.0], z)
+    x /= np.linalg.norm(x)
+    return np.stack([x, np.cross(z, x), z])
+
+
+def equatorial_rate_differences(traj: Trajectory, newton: Trajectory) -> dict[str, float]:
+    """Fitted rates [rad/day] of the differenced node and argument of Mercury, solar equator."""
+    rot = equator_frame()
+    out = {}
+    for key in ("raan", "argp"):
+        series = []
+        for tr in (traj, newton):
+            tr_eq = Trajectory(tr.t, tr.pos @ rot.T, tr.vel @ rot.T, tr.gm, tr.names)
+            series.append(element_series(tr_eq, "Mercury", key)[1])
+        out[key] = fit_secular_rate(traj.t, wrap_angle(series[0] - series[1])).rate
+    return out
+
+
+def mercury_equator_inclination(state: SystemState) -> float:
+    r, v = state.relative_to("Sun")
+    i = state.index("Mercury")
+    return float(inclination_to_axis(r[i], v[i], SUN_POLE_ECLIPTIC))
+
+
+def lunar_fits(traj: Trajectory) -> dict[str, float]:
+    """Sidereal month [d] and perigee/node rates [deg/yr] from the geocentric elements."""
+    r, v = traj.relative("Moon", "Earth")
+    gm = float(traj.gm[traj.index("Earth")] + traj.gm[traj.index("Moon")])
+    el = state_to_elements(r, v, gm)
+    n_sidereal = fit_secular_rate(traj.t, el["varpi"] + el["M"]).rate
+    return {
+        "month": 2.0 * np.pi / n_sidereal,
+        "perigee": fit_secular_rate(traj.t, el["varpi"]).rate * DEG_PER_YEAR,
+        "node": fit_secular_rate(traj.t, el["raan"]).rate * DEG_PER_YEAR,
+    }
+
+
+def earth_moon_barycentre(traj: Trajectory) -> np.ndarray:
+    i_e, i_m = traj.index("Earth"), traj.index("Moon")
+    w = traj.gm[[i_e, i_m]] / traj.gm[[i_e, i_m]].sum()
+    return w[0] * traj.pos[:, i_e] + w[1] * traj.pos[:, i_m]
+
+
+def moon_runs(years: float) -> dict[str, Trajectory]:
+    """Split (Earth + Moon) and EMB systems, Newton and Newton + 1PN, on the Horizons grid."""
+    ref = load_moon_reference_series()
+    n = int(round(years * JULIAN_YEAR_DAYS))
+    t_eval = ref.t[: n + 1]
+    split, emb = load_j2000(with_moon=True), load_j2000()
+    gr_law = make_newton_pn1(c=C_AU_DAY, central=split.index("Sun"))
+    return {
+        "horizons": Trajectory(t_eval, ref.pos[: n + 1], ref.vel[: n + 1], ref.gm, ref.names),
+        "split_newton": dop853(split, accel_newton, t_eval),
+        "split_gr": dop853(split, gr_law, t_eval),
+        "emb_newton": dop853(emb, accel_newton, t_eval),
+        "emb_gr": dop853(emb, gr_law, t_eval),
+    }
+
+
 # ----------------------------------------------------------------------------- fixtures
 @pytest.fixture(scope="module")
 def two_body_state() -> SystemState:
@@ -220,6 +321,16 @@ def nbody_eih_100yr() -> Trajectory:
 @pytest.fixture(scope="module")
 def horizons() -> Trajectory:
     return load_reference_series()
+
+
+@pytest.fixture(scope="module")
+def moon_2yr() -> dict[str, Trajectory]:
+    return moon_runs(2.0)
+
+
+@pytest.fixture(scope="module")
+def moon_10yr() -> dict[str, Trajectory]:
+    return moon_runs(10.0)
 
 
 # ----------------------------------------------------------------------------- check 1
@@ -451,7 +562,141 @@ def test_shapiro_delay_earth_mars_conjunction():
     assert weak / ((EARTH_AU + MARS_AU) / C_AU_DAY) == pytest.approx(1e-7, rel=0.05)
 
 
+# ----------------------------------------------------------------------------- checks 16-17
+def test_j2_amplified_kaula_rates_10yr(two_body_10yr, two_body_state):
+    """J2 x 1000: node and argument rates in the solar-equator frame vs Kaula to 3 percent."""
+    newton, _ = two_body_10yr
+    j2 = J2_AMPLIFICATION * SUN_J2
+    sun = two_body_state.index("Sun")
+    run = dop853(two_body_state, combine(accel_newton, make_j2(j2=j2, central=sun)), newton.t)
+    rates = equatorial_rate_differences(run, newton)
+    el = mercury_elements(two_body_state)
+    inc = mercury_equator_inclination(two_body_state)
+    assert np.degrees(inc) == pytest.approx(3.38, abs=0.05)
+    n_mean = np.sqrt(el["gm"] / el["a"] ** 3)
+    k = n_mean * j2 * (R_SUN_AU / (el["a"] * (1.0 - el["e"] ** 2))) ** 2
+    pred_raan = -1.5 * k * np.cos(inc)
+    pred_argp = 0.75 * k * (5.0 * np.cos(inc) ** 2 - 1.0)
+    assert rates["raan"] / pred_raan == pytest.approx(1.0, abs=0.03)  # measured 0.99996
+    assert rates["argp"] / pred_argp == pytest.approx(1.0, abs=0.03)  # measured 0.99991
+    assert rates["raan"] < 0.0 < rates["argp"]  # the node regresses, the argument advances
+    varpi = rate_arcsec_per_century(rates["raan"] + rates["argp"]) / J2_AMPLIFICATION
+    assert varpi == pytest.approx(MERCURY_PRECESSION_J2_ARCSEC_CY, abs=0.002)
+
+
+def test_j2_real_size_advance_10yr(two_body_10yr, two_body_state):
+    """Real J2 = 2.2e-7 differenced against Newton: +0.028 +- 0.005 arcsec/century."""
+    newton, _ = two_body_10yr
+    sun = two_body_state.index("Sun")
+    run = dop853(two_body_state, combine(accel_newton, make_j2(central=sun)), newton.t)
+    rate, err = perihelion_rate_difference(run, newton, "Mercury")
+    assert rate == pytest.approx(MERCURY_PRECESSION_J2_ARCSEC_CY, abs=0.005)  # measured 0.0278
+    assert err < 1e-3
+
+
+def test_lense_thirring_amplified_rates_10yr(two_body_10yr, two_body_state):
+    """Solar spin x 1e5: node and argument rates vs the Lense-Thirring formulas to 3 percent."""
+    newton, _ = two_body_10yr
+    sun = two_body_state.index("Sun")
+    law = combine(accel_newton, make_lense_thirring(central=sun, scale=LT_AMPLIFICATION))
+    run = dop853(two_body_state, law, newton.t)
+    rates = equatorial_rate_differences(run, newton)
+    el = mercury_elements(two_body_state)
+    inc = mercury_equator_inclination(two_body_state)
+    k = LT_AMPLIFICATION * GJ_SUN / (C_AU_DAY**2 * el["a"] ** 3 * (1.0 - el["e"] ** 2) ** 1.5)
+    assert rates["raan"] / (2.0 * k) == pytest.approx(1.0, abs=0.03)  # measured 0.99996
+    assert rates["argp"] / (-6.0 * k * np.cos(inc)) == pytest.approx(1.0, abs=0.03)  # 0.99995
+    assert rates["argp"] < 0.0 < rates["raan"]  # node dragged forward, argument driven back
+    varpi = rate_arcsec_per_century(rates["raan"] + rates["argp"]) / LT_AMPLIFICATION
+    assert varpi == pytest.approx(MERCURY_PRECESSION_LT_ARCSEC_CY, abs=0.0005)
+
+
+# ----------------------------------------------------------------------------- check 18
+def test_moon_lunar_orbit_2yr(moon_2yr):
+    """Sidereal month, perigee and node rates over two years (short-span tolerances)."""
+    fit = lunar_fits(moon_2yr["split_newton"])
+    ref = lunar_fits(moon_2yr["horizons"])
+    assert fit["month"] == pytest.approx(SIDEREAL_MONTH_DAYS, abs=0.05)  # measured 27.3211
+    assert fit["perigee"] == pytest.approx(MOON_PERIGEE_RATE_DEG_YR, abs=3.0)  # 40.24
+    assert fit["node"] == pytest.approx(MOON_NODE_RATE_DEG_YR, abs=2.0)  # -19.43
+    assert fit["perigee"] == pytest.approx(ref["perigee"], abs=0.3)  # same bias as Horizons
+    assert fit["node"] == pytest.approx(ref["node"], abs=0.3)
+
+
+def test_moon_vs_horizons_and_emb_drift_2yr(moon_2yr):
+    sep_newton = separation(moon_2yr["split_newton"], moon_2yr["horizons"], "Moon") * AU_KM
+    sep_gr = separation(moon_2yr["split_gr"], moon_2yr["horizons"], "Moon") * AU_KM
+    assert sep_gr.max() < 500.0  # measured 38 km
+    assert sep_newton.max() < 500.0  # measured 157 km (mostly the Earth's own 1PN advance)
+    assert sep_gr.max() < sep_newton.max()
+    bc = earth_moon_barycentre(moon_2yr["split_gr"])
+    vs_horizons = np.linalg.norm(bc - earth_moon_barycentre(moon_2yr["horizons"]), axis=1)
+    drift = np.linalg.norm(bc - moon_2yr["emb_gr"].body("EMB")[0], axis=1) * AU_KM
+    assert vs_horizons.max() * AU_KM < 100.0  # 0.9 km: the split run follows the ephemeris
+    assert 100.0 < drift[-1] < 500.0  # 234 km: the EMB point mass lags the real barycentre
+    assert drift[drift.size // 2] == pytest.approx(0.5 * drift[-1], rel=0.2)  # linear growth
+
+
+def test_mercury_rates_with_the_moon_2yr(moon_2yr):
+    rate_split, _ = perihelion_rate_difference(
+        moon_2yr["split_gr"], moon_2yr["split_newton"], "Mercury"
+    )
+    rate_emb, _ = perihelion_rate_difference(moon_2yr["emb_gr"], moon_2yr["emb_newton"], "Mercury")
+    shift, _ = perihelion_rate_difference(
+        moon_2yr["split_newton"], moon_2yr["emb_newton"], "Mercury"
+    )
+    assert rate_split == pytest.approx(rate_emb, abs=0.3)  # measured 1e-7 apart
+    assert rate_split == pytest.approx(MERCURY_PRECESSION_GR_ARCSEC_CY, abs=0.5)  # 2-yr span
+    assert -0.01 < shift < 0.0  # measured -0.0024: the pair slows the Newtonian advance
+
+
 # ============================================================================= slow
+@pytest.mark.slow
+def test_j2_and_lense_thirring_real_size_century(two_body_100yr, two_body_state):
+    """Sun + Mercury + J2 (real) minus Newton over a century: +0.028 +- 0.005; LT reported."""
+    newton, _ = two_body_100yr
+    sun = two_body_state.index("Sun")
+    j2 = dop853(two_body_state, combine(accel_newton, make_j2(central=sun)), newton.t)
+    lt = dop853(two_body_state, combine(accel_newton, make_lense_thirring(central=sun)), newton.t)
+    rate_j2, err_j2 = perihelion_rate_difference(j2, newton, "Mercury")
+    rate_lt, err_lt = perihelion_rate_difference(lt, newton, "Mercury")
+    report = f"J2 {rate_j2:.5f} +- {err_j2:.1e}, LT {rate_lt:.5f} +- {err_lt:.1e} arcsec/cy"
+    assert rate_j2 == pytest.approx(MERCURY_PRECESSION_J2_ARCSEC_CY, abs=0.005), report  # 0.0278
+    assert rate_lt == pytest.approx(MERCURY_PRECESSION_LT_ARCSEC_CY, abs=0.001), report  # -0.0020
+
+
+@pytest.mark.slow
+def test_moon_lunar_orbit_10yr(moon_10yr):
+    fit = lunar_fits(moon_10yr["split_newton"])
+    ref = lunar_fits(moon_10yr["horizons"])
+    report = (
+        f"10 yr: month {fit['month']:.4f} d, perigee {fit['perigee']:+.3f}, node {fit['node']:+.3f}"
+    )
+    assert fit["month"] == pytest.approx(SIDEREAL_MONTH_DAYS, abs=0.05), report  # 27.3217
+    assert fit["perigee"] == pytest.approx(MOON_PERIGEE_RATE_DEG_YR, abs=1.5), report  # 40.59
+    assert fit["node"] == pytest.approx(MOON_NODE_RATE_DEG_YR, abs=1.0), report  # -19.36
+    assert fit["perigee"] == pytest.approx(ref["perigee"], abs=0.3), report
+    assert fit["node"] == pytest.approx(ref["node"], abs=0.3), report
+
+
+@pytest.mark.slow
+def test_mercury_gr_rate_with_the_moon_10yr(moon_10yr):
+    rate_split, _ = perihelion_rate_difference(
+        moon_10yr["split_gr"], moon_10yr["split_newton"], "Mercury"
+    )
+    rate_emb, _ = perihelion_rate_difference(
+        moon_10yr["emb_gr"], moon_10yr["emb_newton"], "Mercury"
+    )
+    shift, _ = perihelion_rate_difference(
+        moon_10yr["split_newton"], moon_10yr["emb_newton"], "Mercury"
+    )
+    assert rate_split == pytest.approx(rate_emb, abs=0.1)  # measured 6e-8 apart
+    assert rate_split == pytest.approx(MERCURY_PRECESSION_GR_ARCSEC_CY, abs=0.1)
+    assert shift == pytest.approx(-0.0025, abs=0.001)
+    sep_gr = separation(moon_10yr["split_gr"], moon_10yr["horizons"], "Moon") * AU_KM
+    assert sep_gr.max() < 500.0  # measured 161 km over ten years
+
+
 @pytest.mark.slow
 def test_two_body_newton_noise_floor_century(two_body_100yr):
     newton, _ = two_body_100yr

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use gravsim in teaching or research, please cite it as below."
+title: "gravsim: Newton vs. Einstein in the solar system"
+type: software
+version: 0.1.0
+date-released: "2026-10-14"
+license: MIT
+authors:
+  - name: "gravsim contributors"
+abstract: >-
+  A pedagogical Python package that integrates the solar system with Newtonian gravity and
+  with General Relativity (1PN test-particle correction, Einstein-Infeld-Hoffmann N-body
+  equations, PPN beta and gamma, exact Schwarzschild geodesics for bodies and light, solar
+  J2 and Lense-Thirring frame dragging, the Moon as a body) and makes the difference
+  measurable: Mercury's 42.98 arcseconds per century, light deflection at the solar limb and
+  the Shapiro delay come out of the simulation, validated against JPL Horizons and REBOUNDx.
+keywords:
+  - celestial mechanics
+  - general relativity
+  - perihelion precession
+  - N-body simulation
+  - education

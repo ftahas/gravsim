@@ -6,11 +6,11 @@ uv pip install -e ".[app]"                 # streamlit + plotly
 ```
 
 `app/streamlit_app.py` adds widgets, caching and plotly figures on top of `app/labs.py`, a
-small module of pure functions that call the package; labs 5 and 6 are self-contained modules
-(`app/lab_ppn.py`, `app/lab_light.py`) with the same split between a pure back end and a
-`render()` front end. `tests/test_app.py`, `test_lab_ppn.py` and `test_lab_light.py` test the
-back ends and run the app headlessly, lab by lab, with `streamlit.testing.v1.AppTest`. Each
-lab mirrors a lesson.
+small module of pure functions that call the package; labs 5, 6 and 7 are self-contained
+modules (`app/lab_ppn.py`, `app/lab_light.py`, `app/lab_extras.py`) with the same split
+between a pure back end and a `render()` front end. `tests/test_app.py`, `test_lab_ppn.py`,
+`test_lab_light.py` and `test_lab_extras.py` test the back ends and run the app headlessly,
+lab by lab, with `streamlit.testing.v1.AppTest`. Each lab mirrors a lesson.
 
 ## 1 · Integrator lab (Lesson 01)
 
@@ -77,3 +77,24 @@ Earth–Mars, –Venus, –Mercury or –Saturn: the weak-field delay of the cho
 closest approach next to the exact-geodesic value and the light time, and the conjunction
 "spike" over a window of days with the occultation gap (Earth–Mars at the limb: 124 μs one
 way, 247 μs for the Viking round trip).
+
+## 7 · Competing effects (Lesson 09)
+
+Sun + Mercury (or, with the Moon toggle, Sun + planets + Earth + Moon) integrated twice on one
+DOP853 grid: Newton, and Newton + the solar quadrupole `forces.extras.make_j2` + Lense–Thirring
+frame dragging `make_lense_thirring`, each amplified by a log slider (defaults $J_2\times10^3$,
+$J\times10^5$) so that they show in the 2–30-year span. Readouts: the fitted rates of the
+**node** $\Omega$ and the **argument of perihelion** $\omega$ of Mercury — differenced against
+the Newtonian run and taken in the solar-equator frame — next to Kaula's
+$\dot\Omega = -\tfrac32 nJ_2(R/p)^2\cos i$, $\dot\omega = \tfrac34 nJ_2(R/p)^2(5\cos^2 i-1)$
+and the Lense–Thirring $\dot\Omega = 2GJ/(c^2a^3(1-e^2)^{3/2})$,
+$\dot\omega = -6GJ\cos i/(\dots)$ (see [the theory page](theory/extras.md)). GR moves only
+$\omega$; the oblate Sun regresses the node and advances the argument; frame dragging drags the
+node forward and the argument back three times faster. Figures: the orbit in 3-D with the
+solar spin axis, $\Delta\Omega(t)$ and $\Delta\omega(t)$ with the fits, and the
+**precession budget** as a log bar chart (planets 531.6, GR 42.98, $J_2$ +0.028, Moon-vs-EMB
+−0.0025, frame dragging −0.002, asteroid ring +0.0014″/cy against the 0.01″ ranging precision).
+With the Moon toggle the 3-D view shows the Moon about the Earth and the lab fits the lunar
+orbit: the sidereal month (27.32 d), the perigee advance (+40.7°/yr) and the node regression
+(−19.3°/yr) — the Sun's tide, purely Newtonian, $\tfrac34 m^2 n = 20.1°$/yr at first order and
+doubled for the perigee by Clairaut's higher orders.

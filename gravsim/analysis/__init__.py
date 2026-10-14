@@ -3,8 +3,9 @@
 Submodules
 ----------
 kepler      analytic two-body solution (Kepler's equation, elements <-> state, propagation)
-elements    angular momentum, node and eccentricity (LRL) vectors, longitude of perihelion
-precession  varpi(t) series, perihelion passages, secular-rate fits, GR/PPN analytic rate
+elements    angular momentum, node and eccentricity (LRL) vectors, longitude of perihelion,
+            inclination to an arbitrary axis
+precession  varpi(t) and element series, perihelion passages, secular-rate fits, GR/PPN rate
 conserved   energy and angular momentum (times G) along a trajectory
 compare     run-versus-run separations and differential precession rates
 
@@ -15,6 +16,7 @@ Units: AU, day, GM in AU^3/day^2, angles in radians (see CONTRIBUTING.md).
 from gravsim.analysis.compare import perihelion_rate_difference, separation
 from gravsim.analysis.conserved import angular_momentum, energy, relative_energy_error
 from gravsim.analysis.elements import (
+    inclination_to_axis,
     lrl_vector,
     node_vector,
     perihelion_longitude,
@@ -30,6 +32,7 @@ from gravsim.analysis.kepler import (
 )
 from gravsim.analysis.precession import (
     SecularFit,
+    element_series,
     fit_secular_rate,
     gr_precession_arcsec_per_century,
     perihelion_longitude_series,
@@ -48,8 +51,10 @@ __all__ = [
     "node_vector",
     "lrl_vector",
     "perihelion_longitude",
+    "inclination_to_axis",
     "SecularFit",
     "perihelion_longitude_series",
+    "element_series",
     "perihelion_passages",
     "fit_secular_rate",
     "rate_arcsec_per_century",

@@ -6,16 +6,17 @@ The validation targets of `ROADMAP.md` §4 are the test suite: `tests/test_valid
 `figures/`. Everything runs from the cached ephemerides; no test touches the network.
 
 ```bash
-.venv/bin/python -m pytest -q                 # fast suite: unit tests + 10-year validation, ~1 min
-.venv/bin/python -m pytest -q -m slow         # century runs + notebook execution, ~4 min
-.venv/bin/python scripts/validate.py          # 100-year runs, table + figures, ~75 s
+.venv/bin/python -m pytest -q                 # fast suite: unit tests + 10-year validation, ~2 min
+.venv/bin/python -m pytest -q -m slow         # century runs + notebook execution, ~6 min
+.venv/bin/python -m pytest -q -m web          # browser tests of the web front end (playwright)
+.venv/bin/python scripts/validate.py          # 100-year runs, table + figures, ~2.5 min
 ```
 
 ## Targets and results
 
 Produced by `scripts/validate.py` (DOP853, `rtol=1e-12`, `atol=1e-15`, daily samples, 100
 years; "fit" = least-squares slope of the osculating longitude of perihelion, "passages" = the
-same from perihelion passages). All 47 checks pass.
+same from perihelion passages). All 64 checks pass.
 
 | check | value | expected | tolerance |
 |---|---|---|---|
@@ -42,6 +43,15 @@ same from perihelion passages). All 47 checks pass.
 | PPN two-body, 10 yr: fit / [(2+2γ−β)/3 × 42.98], (β,γ) = (1,1) / (0,1) / (1,0) / (2,1) | 1.0002 / 1.0001 / 1.0003 / 1.0004 | 1 | 0.01 |
 | light deflection at the limb, exact null geodesic; Soldner 2GM/(c²R☉) | 1.7512″; 0.8756″ | 1.751; 0.8755 | 0.001 |
 | Shapiro delay Earth → Mars grazing the Sun, one way; exact / weak field | 123.6 μs; 1.0001 | ~124; 1 | report; 0.01 |
+| Sun + Mercury + solar J₂ (2.2·10⁻⁷) − Newton, 100 yr | +0.0278 ″/cy | 0.028 | 0.005 |
+| J₂ × 1000, 10 yr: node / argument rates over Kaula (solar-equator frame) | 1.0000 / 0.9999 | 1 | 0.03 |
+| J × 10⁵, 10 yr: node / argument rates over Lense–Thirring | 1.0000 / 1.0000 | 1 | 0.03 |
+| Sun + Mercury + Lense–Thirring (real spin) − Newton, 100 yr | −0.0020 ″/cy | ~−0.002 | report |
+| Moon, ten-body run, 10 yr: sidereal month; perigee / node rates | 27.3217 d; +40.59 / −19.36 °/yr | 27.3217; 40.69 / −19.34 | 0.05; 1.5 / 1.0 |
+| … minus the Horizons series fitted over the same span | −0.002 / +0.007 °/yr | 0 | 0.3 |
+| Moon vs Horizons, max over 2 yr, Newton + 1PN / Newton | 37.6 / 157 km | 0 / — | 500 / report |
+| real Earth–Moon barycentre vs Horizons, 10 yr; EMB run vs real barycentre after 10 yr | 6.8 km; 1170 km (2εnat = 1101) | — | report |
+| Mercury (1PN − Newton) with Earth + Moon minus the EMB value; Newtonian shift | 6·10⁻⁸ ″/cy; −0.0025 | 0; ~−0.0025 | 0.1; report |
 
 ## Reading the table
 
@@ -69,6 +79,22 @@ same from perihelion passages). All 47 checks pass.
   ($10^{-5}$ at the limb) and the Shapiro transit exceeds the weak-field formula by $10^{-4}$
   (second-order end-point and Fermat terms, [Light](theory/light.md)); both are far inside the
   tolerances and far outside the integrator noise.
+* **The competitors** ([What competes with GR](theory/extras.md)): the oblate Sun gives
+  $+0.0278''$/cy for $J_2 = 2.2\times10^{-7}$, three times the ranging precision; frame dragging
+  $-0.0020''$; the Earth–Moon pair as one body $-0.0025''$. The differenced node and argument
+  rates reproduce Kaula's and the Lense–Thirring formulas to $10^{-4}$ with the effects amplified
+  a thousand- and a hundred-thousand-fold (`figures/lense_thirring_amplified.png`), and the
+  modelled terms sum to the $+0.025''$ Horizons − EIH residual of the [EIH page](theory/eih.md)
+  (`figures/precession_budget.png`).
+* **The Moon**: the ten-body run gives the sidereal month to $10^{-5}$ d and the perigee and
+  node rates to $0.01°$/yr of the Horizons series over the same span (the $0.1°$/yr offsets from
+  the secular 40.69 / −19.34 are the long-period lunar inequalities over ten years, present in
+  the ephemeris too). The 2-year "Moon within 100 km of the EMB" target of the plan is replaced
+  by two physical statements: the real Earth–Moon barycentre follows Horizons to 7 km over ten
+  years, while the EMB *point mass* lags it by $2\varepsilon nat$ ≈ 110 km/yr because the pair
+  feels on average $\varepsilon = \tfrac34 w_Ew_M(a_M/a_E)^2 \approx 6\times10^{-8}$ more solar
+  pull than a point mass. Mercury's GR signal is unchanged to $6\times10^{-8}$″/cy
+  (`figures/moon_orbit.png`).
 
 ## Unit-level tests
 
@@ -80,7 +106,11 @@ mocked Horizons queries; one real-network test marked `network`), `test_forces.p
 `test_integrators.py`, `test_analysis.py`, `test_schwarzschild.py`, `test_eih.py` (hand-written
 EIH sums, test-particle limit = Newton + pn1, permutation symmetry, REBOUNDx accelerations and
 positions, PPN scaling), `test_null.py` (deflection series and strong-field limit, ray paths,
-Shapiro forms and the exact transit), `test_viz.py`, plus `test_app.py`, `test_lab_ppn.py` and
-`test_lab_light.py` (lab back ends and headless Streamlit runs) and `test_notebooks.py`
-(structure; execution under `slow`). Analytic references (Kepler, harmonic oscillator, known formulas) are
+Shapiro forms and the exact transit), `test_viz.py`, `test_extras.py` (J₂ as the gradient of its potential, momentum conservation,
+the Lense–Thirring vector formula, Kaula and Lense–Thirring rates), `test_moon.py` (snapshot
+consistency, lunar orbit, EMB drift, Mercury with the Moon), `test_web_backend.py` (scenario
+registry and physics, payload round trips, the FastAPI app, the export script), plus
+`test_app.py`, `test_lab_ppn.py`, `test_lab_light.py` and `test_lab_extras.py` (lab back ends
+and headless Streamlit runs), `test_notebooks.py` (structure; execution under `slow`) and
+`test_web.py` (headless Chromium, marker `web`). Analytic references (Kepler, harmonic oscillator, known formulas) are
 preferred over snapshot tests throughout.

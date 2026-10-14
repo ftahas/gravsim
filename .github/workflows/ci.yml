@@ -11,10 +11,29 @@ jobs:
       - name: Install
         run: |
           uv venv .venv
-          uv pip install -e ".[dev]"
+          uv pip install -e ".[dev,app,docs,web]"
       - name: Lint
         run: .venv/bin/ruff check gravsim tests scripts app
       - name: Fast suite
         run: .venv/bin/python -m pytest -q -n 4
+      - name: Docs
+        run: .venv/bin/mkdocs build --strict -d /tmp/site
       - name: Validation (10-year quick look, report only)
         run: .venv/bin/python scripts/validate.py --years 10 --no-figures || true
+      - name: Web export (static front end, small scenarios)
+        run: .venv/bin/python scripts/export_web.py --out /tmp/webdata --only rosette light_rays --set rosette.n_orbits=5 --set light_rays.n_rays=3
+  # The browser tests (marker `web`, tests/test_web.py) need playwright's chromium and a CDN;
+  # they are best-effort here and never block a merge.
+  browser:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv .venv
+          uv pip install -e ".[dev,app,docs,web]"
+          .venv/bin/python -m playwright install --with-deps chromium
+      - name: Browser suite
+        run: .venv/bin/python -m pytest -q -m web tests/test_web.py

@@ -120,3 +120,5 @@ Hoffmann equations add the mutual 1PN terms between planets and the back-reactio
 for Mercury's secular rate they change nothing at the $0.01''$ level, but they are what the
 ephemerides integrate and they are needed for the all-planet, all-effects comparison with
 Horizons.
+
+What else moves the perihelion at the $0.01''$ level — the oblate Sun, frame dragging, the Moon as a body — is the subject of [What competes with GR](extras.md).

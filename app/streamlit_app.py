@@ -5,13 +5,13 @@ Run from the repository root with the project environment::
     .venv/bin/streamlit run app/streamlit_app.py
 
 Needs the ``app`` extra (``uv pip install -e ".[app]"``: streamlit + plotly).  All physics is in
-``labs.py``, ``lab_ppn.py`` and ``lab_light.py`` next to this file and in the ``gravsim``
-package; this file only adds widgets, ``st.cache_data`` memoisation of the runs and plotly
-figures (labs 5 and 6 bring their own ``render()`` in the same idiom).  Orbits are rendered in
-3-D (``gravsim.viz.interactive``); measurement plots (precession, energy error, potentials,
-deflection, delay) are 2-D.
+``labs.py``, ``lab_ppn.py``, ``lab_light.py`` and ``lab_extras.py`` next to this file and in
+the ``gravsim`` package; this file only adds widgets, ``st.cache_data`` memoisation of the runs
+and plotly figures (labs 5, 6 and 7 bring their own ``render()`` in the same idiom).  Orbits
+are rendered in 3-D (``gravsim.viz.interactive``); measurement plots (precession, energy
+error, potentials, deflection, delay) are 2-D.
 
-The six labs correspond to lessons 01-08 of ``notebooks/``:
+The seven labs correspond to lessons 01-09 of ``notebooks/``:
 
 1. Integrator lab -- choose a fixed-step method and a step, watch the energy error and the
    spurious perihelion precession against the 43 arcsec/century GR signal.
@@ -24,6 +24,9 @@ The six labs correspond to lessons 01-08 of ``notebooks/``:
    sliders for beta and gamma, the (2 + 2 gamma - beta)/3 factor and the experimental bounds.
 6. Light-bending lab (lesson 08) -- ray bundles past the Sun, deflection versus impact
    parameter against the 1919-2004 measurements, capture, and the Shapiro delay at conjunction.
+7. Competing effects (lesson 09) -- solar oblateness J2 and Lense-Thirring frame dragging,
+   amplified, measured on the node and the argument of perihelion in the solar-equator frame;
+   the Moon as a body (sidereal month, perigee and node rates); Mercury's precession budget.
 """
 
 from __future__ import annotations
@@ -44,7 +47,8 @@ APP_DIR = Path(__file__).resolve().parent
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-import lab_light  # noqa: E402  (sibling modules; the path above makes them importable)
+import lab_extras  # noqa: E402  (sibling modules; the path above makes them importable)
+import lab_light  # noqa: E402
 import lab_ppn  # noqa: E402
 import labs  # noqa: E402
 
@@ -55,6 +59,7 @@ LABS = (
     "4 · Effective-potential explorer",
     "5 · PPN playground",
     "6 · Light-bending lab",
+    "7 · Competing effects",
 )
 C_SCALES = {"c (reality)": 1.0, "c / 10": 10.0, "c / 100": 100.0, "c / 1000": 1000.0}
 
@@ -385,7 +390,7 @@ def main() -> None:
         "Newton vs. Einstein in the solar system. Units AU, day, GM; frame: barycentric J2000 "
         "ecliptic. Each lab mirrors a lesson in `notebooks/`: labs 1–4 lessons 01–05 (Newton, "
         "measurement, 1PN, Schwarzschild), lab 5 lessons 06–07 (EIH and PPN), lab 6 lesson 08 "
-        "(light)."
+        "(light), lab 7 lesson 09 (solar J₂, frame dragging, the Moon)."
     )
     lab = st.sidebar.radio("lab", LABS, index=0)
     st.sidebar.caption(
@@ -401,6 +406,7 @@ def main() -> None:
         LABS[3]: lab_potential,
         LABS[4]: lab_ppn.render,
         LABS[5]: lab_light.render,
+        LABS[6]: lab_extras.render,
     }
     pages[lab]()
 
