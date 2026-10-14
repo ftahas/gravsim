@@ -22,7 +22,7 @@ Every phase should move toward reproducing that anomaly *from the simulation its
 | 3 | Schwarzschild geodesic (exact, test particle) | Effective potential, ISCO, photon sphere; GR intuition | `metric/schwarzschild.py` |
 | 4 | 1PN test-particle correction | The standard "GR term"; show it agrees with level 3 in weak field | `forces/pn1.py` |
 | 5 | EIH 1PN N-body (all bodies relativistic) | What JPL ephemerides actually do; 532 + 43 ≈ 575"/century | `forces/eih.py` |
-| 6 | PPN parameters β, γ | Precession ∝ (2 + 2γ − β)/3; "what if gravity were a different theory?" | `forces/ppn.py` |
+| 6 | PPN parameters β, γ | Precession ∝ (2 + 2γ − β)/3; "what if gravity were a different theory?" | `beta`, `gamma` arguments of `forces/pn1.py` and `forces/eih.py` |
 | 7 | Null geodesics (light) | Eddington 1919: 1.75" deflection at the limb; Shapiro delay | `metric/null.py` |
 | 8 (opt) | Solar J2, Lense-Thirring | What competes with GR at the 0.03" level | `forces/extras.py` |
 
@@ -125,7 +125,6 @@ gravsim/
       newton.py         # pairwise Newtonian acceleration
       pn1.py            # 1PN test-particle correction (central mass)
       eih.py            # Einstein–Infeld–Hoffmann N-body 1PN
-      ppn.py            # β, γ parametrized version of the above
       extras.py         # solar J2, Lense–Thirring (optional)
     integrators/
       euler.py  leapfrog.py  rk4.py  yoshida.py  scipy_wrap.py
@@ -144,7 +143,7 @@ gravsim/
     viz/
       plots.py  animate.py
   notebooks/
-    01_integrators.ipynb … 08_ppn_playground.ipynb
+    01_integrators … 05_black_hole_orbits, 06_le_verrier_vulcan_einstein, 07_ppn_playground, 08_eddington_1919
   app/
     streamlit_app.py
   tests/
@@ -192,34 +191,47 @@ Each phase ends with a notebook (the lesson) and tests (the validation).
 - Lesson 04: "Mercury's extra 43 arcseconds" and Lesson 05: "Orbits around a black hole"
   (effective potential explorer, zoom-whirl, capture).
 
-### Phase 5 — GR II: everybody curves spacetime (medium–large)
-- `forces/eih.py`: EIH 1PN N-body equations (as in JPL DE ephemerides).
-- `forces/ppn.py`: β, γ knobs.
-- Velocity-dependent-force integrator strategy (implicit kick or DOP853).
-- Cross-check against REBOUNDx `gr_full`.
-- Validation: N-body 1PN Mercury ≈ 574.6 ± 1 "/century; all-planet rates on the GR curve;
-  residual-vs-Horizons test: Newton drifts, 1PN doesn't.
-- Lesson 06: "Le Verrier, Vulcan, Einstein" (the anomaly reproduced from data).
-- Lesson 07: "What if gravity were a different theory?" (PPN).
+### Phase 5 — GR II: everybody curves spacetime (medium–large) — DONE
+- [x] `forces/eih.py`: EIH 1PN N-body equations (as in JPL DE ephemerides), PPN-parametrised.
+- [x] β, γ knobs: taken directly by `make_pn1` and `make_eih` (no separate `forces/ppn.py`).
+- [x] Velocity-dependent-force integrator strategy: DOP853 for production, implicit kick in
+      the symplectic classes.
+- [x] Cross-check against REBOUNDx `gr_full`: accelerations to 1e-10, positions to 0.035 km
+      over 10 yr (`tests/test_eih.py`, `scripts/validate.py` check 12).
+- [x] Validation: N-body EIH Mercury 572.2 (574.6 ± 3, same OLS bias as Newton's 529.2 vs
+      531.6); EIH − Newton 42.977 / 8.637 / 3.851 / 1.351 for Mercury / Venus / EMB / Mars;
+      EIH − (Sun-only 1PN) 1.5e-5 "/century; Horizons residual: Newton drifts, EIH doesn't.
+- [x] Lesson 06: "Le Verrier, Vulcan, Einstein" (the anomaly reproduced from data).
+- [x] Lesson 07: "What if gravity were a different theory?" (PPN).
+- Status: implemented, reviewed and validated; theory pages `docs/theory/eih.md`, `ppn.md`;
+  app lab 5 (PPN playground). Deviation: no `forces/ppn.py` module.
 
-### Phase 6 — Light (medium)
-- Null geodesics in Schwarzschild; bundle of rays past the Sun; 1.751" at the limb.
-- Shapiro delay for Earth–Mars signal at superior conjunction (~250 μs).
-- Lesson 08: "Eddington 1919".
+### Phase 6 — Light (medium) — DONE
+- [x] Null geodesics in Schwarzschild (`metric/null.py`): exact deflection 1.7512" at the limb
+      (Soldner 0.8756"), ray paths and bundles, capture at b_crit = 3√3 GM/c², Shapiro delay
+      in weak-field, conjunction and exact-geodesic forms.
+- [x] Shapiro delay for the Earth–Mars signal at superior conjunction: 123.6 μs one way, 247 μs
+      round trip; exact geodesic / weak field = 1.0001.
+- [x] Lesson 08: "Eddington 1919".
+- Status: implemented, reviewed and validated; theory page `docs/theory/light.md`; app lab 6
+  (light-bending lab).
 
-### Phase 7 — Interactive app (medium–large)
-Streamlit lab with cached precomputed runs:
-1. Integrator lab (choose method/step, watch energy error).
-2. Solar system: Newton/GR toggle, c slider, difference-vector view (amplified).
-3. Precession tracker: live ω(t) for selected planet, fitted rate readout.
-4. Effective-potential explorer: drag E and L, see the orbit.
-5. Light-bending lab.
-6. PPN playground.
+### Phase 7 — Interactive app (medium–large) — DONE
+Streamlit lab with cached precomputed runs (`app/streamlit_app.py`):
+1. [x] Integrator lab (choose method/step, watch energy error).
+2. [x] Solar system: Newton/GR toggle, c slider, difference-vector view (amplified).
+3. [x] Precession tracker: live ω(t) for selected planet, fitted rate readout.
+4. [x] Effective-potential explorer: drag E and L, see the orbit.
+5. [x] PPN playground (`app/lab_ppn.py`).
+6. [x] Light-bending lab (`app/lab_light.py`).
+- Deviation: labs 5 and 6 are numbered in lesson order (PPN = lessons 06–07, light = lesson 08),
+  the reverse of the list above.
 
 ### Phase 8 — Polish (ongoing)
-- mkdocs theory pages (derivations of 1PN term, EIH, PPN precession formula).
-- Packaging (`pip install -e .`), README with the headline plots, CITATION.
-- Optional: Three.js front end, Lense-Thirring/J2, asteroid belt, Moon.
+- [x] mkdocs theory pages (derivations of 1PN term, EIH, PPN precession formula, light); `mkdocs build --strict` passes.
+- [x] Packaging (`pip install -e .`), README with the headline plots and the validation table.
+- [x] CI: `.github/workflows/ci.yml` runs ruff and the fast suite (REBOUNDx oracle tests skip when absent).
+- [ ] Optional: Three.js front end, Lense-Thirring/J2, asteroid belt, Moon, CITATION file.
 
 ---
 
@@ -237,7 +249,12 @@ Streamlit lab with cached precomputed runs:
 | N-body EIH Mercury | 574.6 "/century | ± 3 (same bias); run-vs-run difference vs Newton 42.98 ± 0.1 |
 | Venus / Earth / Mars GR (run-vs-run) | 8.62 / 3.84 / 1.35 | ± 0.1 |
 | PPN with β=γ=1 | equals GR run | bitwise-ish |
-| Light deflection at limb | 1.751" | ± 0.001 |
+| PPN two-body (β,γ) = (0,1), (1,0), (2,1) | (2+2γ−β)/3 × 42.98 "/century | ± 1 % (measured 1e-4 to 4e-4) |
+| Light deflection at limb | 1.751" | ± 0.001 (constants, and the exact null geodesic: 1.7512") |
+| Light deflection, Soldner corpuscle | 0.8756" (half of GR) | ± 0.001 |
+| Shapiro delay, Earth–Mars at the limb, one way | 124 μs (247 round trip) | reported; exact geodesic / weak field 1 ± 0.01 |
+| EIH − (Sun-only 1PN) Mercury secular rate | 0 | < 0.02 "/century |
+| REBOUNDx `gr_full` vs EIH, 10 yr | positions | < 10 km (measured 0.035) |
 | Newton vs. Horizons, 10 yr | km-level | documented, not asserted tightly |
 
 ---

@@ -1,0 +1,20 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv .venv
+          uv pip install -e ".[dev]"
+      - name: Lint
+        run: .venv/bin/ruff check gravsim tests scripts app
+      - name: Fast suite
+        run: .venv/bin/python -m pytest -q -n 4
+      - name: Validation (10-year quick look, report only)
+        run: .venv/bin/python scripts/validate.py --years 10 --no-figures || true

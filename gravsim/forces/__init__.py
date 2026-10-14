@@ -7,13 +7,15 @@ summed with ``combine``.
 * ``newton``: pairwise Newtonian gravity (``accel_newton``; numba kernel + numpy fallback).
 * ``pn1``: first post-Newtonian correction of one central mass, PPN-parametrised
   (``make_pn1`` = correction only, ``make_newton_pn1`` = Newton + correction).
-* ``eih``: (Phase 5) full Einstein-Infeld-Hoffmann N-body 1PN law, Newtonian term included.
+* ``eih``: full Einstein-Infeld-Hoffmann N-body 1PN law, PPN-parametrised, Newtonian term
+  included (``make_eih``).
 """
 
 from __future__ import annotations
 
 import numpy as np
 
+from gravsim.forces.eih import make_eih
 from gravsim.forces.newton import (
     HAVE_NUMBA,
     AccelFn,
@@ -30,6 +32,7 @@ __all__ = [
     "accel_newton_numba",
     "accel_newton_numpy",
     "combine",
+    "make_eih",
     "make_newton_pn1",
     "make_pn1",
 ]

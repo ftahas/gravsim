@@ -29,8 +29,19 @@ Physics
 * Energy: DOP853 is not symplectic but at rtol 1e-12 its drift is ~1e-13 per century;
   Yoshida4 at dt = 0.5 d has a bounded error ~2e-9.
 * Light deflection at the solar limb: ``4 GM / (c^2 R_sun)`` = 1.751 arcsec.
+* EIH N-body (Phase 5): with every body relativistic (``forces.eih``) the run-vs-run
+  differences against Newton are the same 42.98 / 8.62 / 3.84 / 1.35, the EIH-minus-pn1
+  secular difference for Mercury is below 0.02 arcsec/century (measured -2e-5: the Sun's
+  barycentric motion and the planets' potentials only add periodic terms), and REBOUNDx
+  ``gr_full`` (IAS15) reproduces the EIH positions to < 10 km over ten years (measured 0.04 km).
+* PPN scaling (Phase 5): Sun + Mercury under ``make_eih(beta, gamma)`` precesses at
+  ``(2 + 2 gamma - beta)/3`` times the GR rate to 1 percent (measured 3e-4 over ten years).
+* Light (Phase 6): the exact null geodesic grazing the Sun is bent by 1.751 arcsec (+- 0.001),
+  Soldner's corpuscle by half; the one-way Earth-Mars Shapiro delay at the limb is
+  ``(1 + gamma) GM/c^3 ln[(r_e + r_r + R)/(r_e + r_r - R)]`` = 124 microseconds and the exact
+  null-geodesic transit agrees with it to 1 percent (measured 1e-4).
 
-Fast tests use ten-year (or 50-orbit) runs and finish in ~10 s; the century-long versions are
+Fast tests use ten-year (or 50-orbit) runs and finish in ~20 s; the century-long versions are
 marked ``@pytest.mark.slow``.
 """
 
@@ -54,6 +65,7 @@ from gravsim.constants import (
     ARCSEC_PER_RAD,
     AU_KM,
     C_AU_DAY,
+    DAY_S,
     GM_SUN,
     JULIAN_CENTURY_DAYS,
     JULIAN_YEAR_DAYS,
@@ -64,8 +76,9 @@ from gravsim.constants import (
     R_SUN_AU,
 )
 from gravsim.data.horizons import load_j2000, load_reference_series
-from gravsim.forces import accel_newton, make_newton_pn1
+from gravsim.forces import accel_newton, make_eih, make_newton_pn1
 from gravsim.integrators import integrate, integrate_scipy
+from gravsim.metric import null
 from gravsim.metric.schwarzschild import precession_per_orbit_1pn, precession_per_orbit_numeric
 
 RTOL, ATOL = 1e-12, 1e-15
@@ -74,6 +87,9 @@ NBODY_PN1_MERCURY = 574.6
 FAST_YEARS = 10.0
 SLOW_YEARS = 100.0
 FIXED_DT = 0.5
+PPN_CASES = [(0.0, 1.0), (1.0, 0.0), (2.0, 1.0)]
+EARTH_AU, MARS_AU = 1.0, 1.5237  # mean distances for the Shapiro geometry
+MICROSECOND_DAYS = 1e-6 / DAY_S
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -122,6 +138,30 @@ def nbody_runs(years: float) -> tuple[Trajectory, Trajectory]:
     return newton, pn1
 
 
+def rebound_gr_full_positions(state: SystemState, t_eval: np.ndarray) -> np.ndarray:
+    """Positions (T, N, 3) from REBOUND (G = 1, IAS15) with the REBOUNDx ``gr_full`` force."""
+    rebound = pytest.importorskip("rebound")
+    reboundx = pytest.importorskip("reboundx")
+    sim = rebound.Simulation()
+    sim.G = 1.0
+    sim.t = float(state.t)
+    sim.integrator = "ias15"
+    for i in range(state.n):
+        x, y, z = (float(q) for q in state.pos[i])
+        vx, vy, vz = (float(q) for q in state.vel[i])
+        sim.add(m=float(state.gm[i]), x=x, y=y, z=z, vx=vx, vy=vy, vz=vz)
+    rebx = reboundx.Extras(sim)
+    gr_full = rebx.load_force("gr_full")
+    rebx.add_force(gr_full)
+    gr_full.params["c"] = float(C_AU_DAY)
+    out = [np.array([[p.x, p.y, p.z] for p in sim.particles])]
+    for t in t_eval[1:]:
+        sim.integrate(float(t))
+        out.append(np.array([[p.x, p.y, p.z] for p in sim.particles]))
+    del rebx, gr_full  # must outlive the integration
+    return np.array(out)
+
+
 def horizons_separations_km(
     newton: Trajectory, pn1: Trajectory, ref: Trajectory
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -163,6 +203,18 @@ def nbody_10yr() -> tuple[Trajectory, Trajectory]:
 @pytest.fixture(scope="module")
 def nbody_100yr() -> tuple[Trajectory, Trajectory]:
     return nbody_runs(SLOW_YEARS)
+
+
+@pytest.fixture(scope="module")
+def nbody_eih_10yr() -> Trajectory:
+    state = load_j2000()
+    return dop853(state, make_eih(c=C_AU_DAY), daily_grid(state.t, FAST_YEARS))
+
+
+@pytest.fixture(scope="module")
+def nbody_eih_100yr() -> Trajectory:
+    state = load_j2000()
+    return dop853(state, make_eih(c=C_AU_DAY), daily_grid(state.t, SLOW_YEARS))
 
 
 @pytest.fixture(scope="module")
@@ -311,6 +363,94 @@ def test_light_deflection_constant():
     assert delta == pytest.approx(LIGHT_DEFLECTION_LIMB_ARCSEC, abs=0.001)
 
 
+# ----------------------------------------------------------------------------- checks 10-12
+def test_nbody_10yr_eih_minus_newton(nbody_10yr, nbody_eih_10yr):
+    newton, _ = nbody_10yr
+    eih = nbody_eih_10yr
+    np.testing.assert_array_equal(eih.t, newton.t)
+    assert eih.meta["method"] == "DOP853"
+    rate, err = perihelion_rate_difference(eih, newton, "Mercury")
+    assert rate == pytest.approx(MERCURY_PRECESSION_GR_ARCSEC_CY, abs=0.10)  # measured 42.986
+    assert err < 0.05
+    for body in ("Venus", "EMB", "Mars"):
+        rate, _ = perihelion_rate_difference(eih, newton, body)
+        assert rate == pytest.approx(GR_RATES[body], abs=1.0), body  # +-0.1 needs the century
+
+
+def test_nbody_10yr_eih_minus_pn1_mercury(nbody_10yr, nbody_eih_10yr):
+    """The Sun-only 1PN law already carries the secular term; EIH adds only periodic km."""
+    _, pn1 = nbody_10yr
+    eih = nbody_eih_10yr
+    rate, err = perihelion_rate_difference(eih, pn1, "Mercury")
+    assert abs(rate) < 0.02, f"EIH minus pn1: {rate:.2e} +- {err:.2e} arcsec/cy"  # ~ -2e-5
+    sep_km = separation(eih, pn1, "Mercury") * AU_KM
+    assert 0.1 < sep_km.max() < 5.0  # measured 0.5 km after ten years
+    assert separation(eih, pn1, "Sun").max() * AU_KM < 0.1  # 0.03 km
+
+
+def test_rebound_gr_full_oracle_10yr(nbody_10yr, nbody_eih_10yr):
+    """REBOUNDx gr_full (same EIH equations, IAS15) reproduces the EIH run to < 10 km."""
+    state = load_j2000()
+    eih = nbody_eih_10yr
+    idx = np.arange(0, eih.t.size, 10)  # every ten days
+    pos_rb = rebound_gr_full_positions(state, eih.t[idx])
+    sep_km = np.linalg.norm(eih.pos[idx] - pos_rb, axis=2) * AU_KM  # (T, N)
+    assert sep_km[0].max() == 0.0
+    worst = sep_km.max(axis=0)
+    assert worst.max() < 10.0, dict(zip(state.names, worst, strict=True))
+    assert worst[state.index("Mercury")] < 1.0  # measured 0.035 km
+    # teeth: Newton drifts from both GR runs by hundreds of km over the same span
+    newton, _ = nbody_10yr
+    assert separation(newton, eih, "Mercury")[-1] * AU_KM > 500.0
+
+
+# ----------------------------------------------------------------------------- check 13
+@pytest.mark.parametrize("beta,gamma", PPN_CASES)
+def test_ppn_two_body_scaling_10yr(two_body_10yr, two_body_state, beta, gamma):
+    """Sun + Mercury under make_eih(beta, gamma): rate = (2 + 2 gamma - beta)/3 x 42.98."""
+    newton, _ = two_body_10yr
+    run = dop853(two_body_state, make_eih(c=C_AU_DAY, beta=beta, gamma=gamma), newton.t)
+    rate, err = perihelion_rate_difference(run, newton, "Mercury")
+    factor = (2.0 + 2.0 * gamma - beta) / 3.0
+    predicted = factor * MERCURY_PRECESSION_GR_ARCSEC_CY
+    assert rate / predicted == pytest.approx(1.0, abs=0.01)  # measured 1.0001 - 1.0004
+    assert err < 0.1
+    el = mercury_elements(two_body_state)
+    analytic = gr_precession_arcsec_per_century(
+        el["a"], el["e"], el["gm"], beta=beta, gamma=gamma
+    )
+    assert float(analytic) == pytest.approx(predicted, abs=0.02)
+
+
+# ----------------------------------------------------------------------------- checks 14-15
+def test_light_deflection_numeric_limb_and_soldner():
+    mu = GM_SUN / C_AU_DAY**2
+    exact = null.deflection_angle(R_SUN_AU, GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD
+    weak = null.deflection_angle_weak(R_SUN_AU, GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD
+    soldner = null.deflection_newtonian_corpuscle(R_SUN_AU, GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD
+    assert exact == pytest.approx(LIGHT_DEFLECTION_LIMB_ARCSEC, abs=0.001)  # 1.7512
+    assert weak == pytest.approx(LIGHT_DEFLECTION_LIMB_ARCSEC, abs=0.001)
+    assert soldner == pytest.approx(0.5 * weak, rel=1e-12)  # 0.8756: half of GR
+    assert soldner == pytest.approx(0.875, abs=0.001)
+    # the exact geodesic exceeds 4 GM/(c^2 b) by the second-order (15 pi/16) mu/b
+    assert exact / weak - 1.0 == pytest.approx(15.0 * np.pi / 16.0 * mu / R_SUN_AU, rel=0.05)
+
+
+def test_shapiro_delay_earth_mars_conjunction():
+    weak = null.shapiro_delay(EARTH_AU, MARS_AU, R_SUN_AU, GM_SUN, C_AU_DAY)
+    conj = null.shapiro_delay_conjunction(EARTH_AU, MARS_AU, R_SUN_AU, GM_SUN, C_AU_DAY)
+    numeric = null.shapiro_delay_numeric(EARTH_AU, MARS_AU, R_SUN_AU, GM_SUN, C_AU_DAY)
+    one_way_us = weak / MICROSECOND_DAYS
+    assert one_way_us == pytest.approx(124.0, abs=1.0)  # measured 123.6; Viking round trip 247
+    assert 2.0 * one_way_us == pytest.approx(250.0, abs=5.0)
+    assert conj == pytest.approx(weak, rel=1e-5, abs=0)
+    assert numeric / weak == pytest.approx(1.0, abs=0.01)  # measured 1.0001
+    # gamma = 0 halves it; the delay is a 1e-7 fraction of the light time
+    half = null.shapiro_delay(EARTH_AU, MARS_AU, R_SUN_AU, GM_SUN, C_AU_DAY, gamma=0.0)
+    assert half == pytest.approx(0.5 * weak, rel=1e-12, abs=0)
+    assert weak / ((EARTH_AU + MARS_AU) / C_AU_DAY) == pytest.approx(1e-7, rel=0.05)
+
+
 # ============================================================================= slow
 @pytest.mark.slow
 def test_two_body_newton_noise_floor_century(two_body_100yr):
@@ -368,3 +508,28 @@ def test_horizons_separation_century_pn1_closer_than_newton(nbody_100yr, horizon
 def test_energy_error_century(nbody_100yr):
     newton, _ = nbody_100yr
     assert np.abs(relative_energy_error(newton)).max() < 1e-9  # measured ~7e-14
+
+
+@pytest.mark.slow
+def test_nbody_eih_century(nbody_100yr, nbody_eih_100yr):
+    newton, pn1 = nbody_100yr
+    eih = nbody_eih_100yr
+    rate, _ = dense_rate(eih)
+    assert rate == pytest.approx(NBODY_PN1_MERCURY, abs=3.0)  # same -2.4 bias as check 6
+    assert passage_rate(eih) == pytest.approx(NBODY_PN1_MERCURY, abs=3.0)
+    for body, expected in GR_RATES.items():
+        diff, err = perihelion_rate_difference(eih, newton, body)
+        assert diff == pytest.approx(expected, abs=0.10), body
+        assert err < 0.05, body
+    diff, err = perihelion_rate_difference(eih, pn1, "Mercury")
+    assert abs(diff) < 0.02, f"EIH minus pn1: {diff:.2e} +- {err:.2e} arcsec/cy"
+
+
+@pytest.mark.slow
+def test_horizons_separation_century_eih_closer_than_newton(nbody_100yr, nbody_eih_100yr, horizons):
+    newton, pn1 = nbody_100yr
+    sep_n, sep_e = horizons_separations_km(newton, nbody_eih_100yr, horizons)
+    _, sep_g = horizons_separations_km(newton, pn1, horizons)
+    assert sep_e[-1] < sep_n[-1] and sep_e.mean() < sep_n.mean()
+    assert sep_e[-1] < 1000.0  # measured ~180 km, like the pn1 run
+    assert abs(sep_e[-1] - sep_g[-1]) < 20.0  # the two GR laws differ by km, not hundreds

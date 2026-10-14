@@ -26,4 +26,7 @@ nav:
       - Measuring a perihelion drift: theory/measurement.md
       - The 1PN correction and the 43 arcseconds: theory/pn1.md
       - Schwarzschild geodesics: theory/schwarzschild.md
+      - The Einstein–Infeld–Hoffmann equations: theory/eih.md
+      - The PPN framework (β, γ): theory/ppn.md
+      - Light, deflection and the Shapiro delay: theory/light.md
   - Validation: validation.md

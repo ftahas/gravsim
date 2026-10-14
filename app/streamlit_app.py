@@ -5,11 +5,13 @@ Run from the repository root with the project environment::
     .venv/bin/streamlit run app/streamlit_app.py
 
 Needs the ``app`` extra (``uv pip install -e ".[app]"``: streamlit + plotly).  All physics is in
-``labs.py`` next to this file and in the ``gravsim`` package; this file only adds widgets,
-``st.cache_data`` memoisation of the runs and plotly figures.  Orbits are rendered in 3-D
-(``gravsim.viz.interactive``); measurement plots (precession, energy error, potentials) are 2-D.
+``labs.py``, ``lab_ppn.py`` and ``lab_light.py`` next to this file and in the ``gravsim``
+package; this file only adds widgets, ``st.cache_data`` memoisation of the runs and plotly
+figures (labs 5 and 6 bring their own ``render()`` in the same idiom).  Orbits are rendered in
+3-D (``gravsim.viz.interactive``); measurement plots (precession, energy error, potentials,
+deflection, delay) are 2-D.
 
-The four labs correspond to lessons 01-05 of ``notebooks/``:
+The six labs correspond to lessons 01-08 of ``notebooks/``:
 
 1. Integrator lab -- choose a fixed-step method and a step, watch the energy error and the
    spurious perihelion precession against the 43 arcsec/century GR signal.
@@ -18,6 +20,10 @@ The four labs correspond to lessons 01-05 of ``notebooks/``:
 3. Precession tracker -- live varpi(t) of a planet in both runs with the fitted rates.
 4. Effective-potential explorer -- drag L and E, see the Schwarzschild orbit (precession,
    zoom-whirl, capture) in geometric units.
+5. PPN playground (lessons 06-07) -- Sun + Mercury under the PPN-parametrised EIH equations,
+   sliders for beta and gamma, the (2 + 2 gamma - beta)/3 factor and the experimental bounds.
+6. Light-bending lab (lesson 08) -- ray bundles past the Sun, deflection versus impact
+   parameter against the 1919-2004 measurements, capture, and the Shapiro delay at conjunction.
 """
 
 from __future__ import annotations
@@ -38,13 +44,17 @@ APP_DIR = Path(__file__).resolve().parent
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-import labs  # noqa: E402  (sibling module; the path above makes it importable)
+import lab_light  # noqa: E402  (sibling modules; the path above makes them importable)
+import lab_ppn  # noqa: E402
+import labs  # noqa: E402
 
 LABS = (
     "1 · Integrator lab",
     "2 · Solar system: Newton vs GR",
     "3 · Precession tracker",
     "4 · Effective-potential explorer",
+    "5 · PPN playground",
+    "6 · Light-bending lab",
 )
 C_SCALES = {"c (reality)": 1.0, "c / 10": 10.0, "c / 100": 100.0, "c / 1000": 1000.0}
 
@@ -120,14 +130,14 @@ def lab_integrators() -> None:
         fig.update_layout(
             height=480, title=f"{name}, dt = {res.traj.meta['dt']:.3f} d, {years:g} yr"
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with right:
         t_yr = (res.traj.t - res.traj.t[0]) / C.JULIAN_YEAR_DAYS
         err = np.abs(res.energy_error)
         err[err == 0.0] = np.nan
         st.plotly_chart(
             _line_figure(t_yr, {f"{name}": err}, "t [years]", "|ΔE/E₀|", log_y=True),
-            use_container_width=True,
+            width="stretch",
         )
         st.caption(
             "Symplectic schemes (symplectic_euler, leapfrog, yoshida4/6) keep the energy error "
@@ -184,7 +194,7 @@ def lab_solar_system() -> None:
         )
     )
     fig.update_layout(height=620, title=f"Orbits relative to the Sun, {years:g} yr, {c_label}")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     m1, m2, m3 = st.columns(3)
     m1.metric(f"|r_GR − r_Newton| of {body} after {years:g} yr", f"{sep[-1]:.3g} km")
@@ -197,7 +207,7 @@ def lab_solar_system() -> None:
             "t [years]",
             "|r_GR − r_Newton| [km]",
         ),
-        use_container_width=True,
+        width="stretch",
     )
     st.caption(
         "The displacement grows along the orbit because the GR perihelion runs ahead of the "
@@ -244,13 +254,13 @@ def lab_precession() -> None:
         fig_g.data[0].update(name="Newton + 1PN", line={"color": INK})
         fig.add_trace(fig_g.data[0])
         fig.update_layout(title=f"{body}: ϖ(t) − ϖ(0)", height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with right:
         fit_rate = track.rate_difference / (C.ARCSEC_PER_RAD * C.JULIAN_CENTURY_DAYS)
         fig = precession_figure(track.t, track.difference, fit_rate, units=units)
         fig.data[0].update(name="(Newton + 1PN) − Newton")
         fig.update_layout(title="run-vs-run difference", height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     el = track.elements
     st.caption(
         f"osculating elements at J2000: a = {el['a']:.4f} AU, e = {el['e']:.4f}, "
@@ -330,7 +340,7 @@ def lab_potential() -> None:
             legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "x": 0.0},
             margin={"l": 60, "r": 20, "t": 40, "b": 50},
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with right:
         fig = go.Figure()
         fig.add_trace(
@@ -358,7 +368,7 @@ def lab_potential() -> None:
             legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "x": 0.0},
             margin={"l": 0, "r": 0, "t": 30, "b": 0},
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     st.caption(
         "Just below the barrier top the particle whirls near the unstable circular orbit before "
         "zooming out (zoom-whirl); above it, it plunges through the horizon. Below "
@@ -373,19 +383,24 @@ def main() -> None:
     st.sidebar.title("gravsim lab")
     st.sidebar.markdown(
         "Newton vs. Einstein in the solar system. Units AU, day, GM; frame: barycentric J2000 "
-        "ecliptic. Each lab mirrors a lesson in `notebooks/`."
+        "ecliptic. Each lab mirrors a lesson in `notebooks/`: labs 1–4 lessons 01–05 (Newton, "
+        "measurement, 1PN, Schwarzschild), lab 5 lessons 06–07 (EIH and PPN), lab 6 lesson 08 "
+        "(light)."
     )
     lab = st.sidebar.radio("lab", LABS, index=0)
     st.sidebar.caption(
         f"Reference numbers: Mercury 1PN {C.MERCURY_PRECESSION_GR_ARCSEC_CY} ″/cy, "
         f"planets {C.MERCURY_PRECESSION_NEWTON_ARCSEC_CY} ″/cy, "
-        f"observed {C.MERCURY_PRECESSION_OBSERVED_ARCSEC_CY} ″/cy."
+        f"observed {C.MERCURY_PRECESSION_OBSERVED_ARCSEC_CY} ″/cy; light at the solar limb "
+        f"{C.LIGHT_DEFLECTION_LIMB_ARCSEC} ″."
     )
     pages = {
         LABS[0]: lab_integrators,
         LABS[1]: lab_solar_system,
         LABS[2]: lab_precession,
         LABS[3]: lab_potential,
+        LABS[4]: lab_ppn.render,
+        LABS[5]: lab_light.render,
     }
     pages[lab]()
 

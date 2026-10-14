@@ -6,8 +6,11 @@ uv pip install -e ".[app]"                 # streamlit + plotly
 ```
 
 `app/streamlit_app.py` adds widgets, caching and plotly figures on top of `app/labs.py`, a
-small module of pure functions that call the package (`tests/test_app.py` tests both; the
-app is run headlessly with `streamlit.testing.v1.AppTest`). Each lab mirrors a lesson.
+small module of pure functions that call the package; labs 5 and 6 are self-contained modules
+(`app/lab_ppn.py`, `app/lab_light.py`) with the same split between a pure back end and a
+`render()` front end. `tests/test_app.py`, `test_lab_ppn.py` and `test_lab_light.py` test the
+back ends and run the app headlessly, lab by lab, with `streamlit.testing.v1.AppTest`. Each
+lab mirrors a lesson.
 
 ## 1 · Integrator lab (Lesson 01)
 
@@ -45,3 +48,32 @@ plane with the horizon, photon sphere and ISCO as rings. Just below the barrier 
 *whirls*; above it, it plunges; below $L = \sqrt{12}$ there is no barrier. The geodesic is
 integrated in proper time (`metric.schwarzschild.geodesic_orbit`), so bound, escaping and
 captured orbits are all handled.
+
+## 5 · PPN playground (Lessons 06, 07)
+
+Sun + Mercury integrated twice on one DOP853 grid: Newton, and the PPN-parametrised
+Einstein–Infeld–Hoffmann law `forces.eih.make_eih(c, beta, gamma)`. Sliders for $\beta$ and
+$\gamma$ (0–2), the speed of light ($c$ … $c/1000$) and the span (2–30 years). Readouts: the
+fitted rate of the differenced perihelion longitude, the PPN prediction
+$\tfrac{2+2\gamma-\beta}{3}\,6\pi GM/(c^2 a(1-e^2))$ for the same $c$, the GR value and
+the factor. Figures: the orbit in 3-D (PPN run solid, Newton dotted), $\Delta\varpi(t)$ with
+the fitted and predicted slopes, a contour map of the factor over the $(\beta,\gamma)$ plane
+with the degeneracy line $2\gamma - \beta = 1$ (every theory on it gives Mercury's $43''$),
+and the Cassini, lunar-laser-ranging and Mercury bounds drawn to scale with the chosen theory's
+distance from each in $\sigma$. $\beta = \gamma = 1$ at the real $c$ reproduces the $42.98''$
+of lab 3; $\gamma = 0$ gives a third of it, $\beta = 0$ four thirds.
+
+## 6 · Light-bending lab (Lesson 08)
+
+Null geodesics from `metric.null`. Choose the impact parameter in solar radii or in $GM/c^2$,
+a "mass inside the Sun's radius" (1 … 10⁶ $M_\odot$; at $10^5$ the limb ray is captured and
+the lab says so) and the PPN $\gamma$. Readouts: the exact deflection, the weak-field
+$(1+\gamma)/2 \cdot 4GM/(c^2 b)$, Soldner's $2GM/(c^2 b)$ and $b/b_{\rm crit}$. Left, a
+bundle of rays past the body with the deviation from the straight line amplified (the solar
+bending is $8.5\times10^{-6}$ rad and invisible to scale); right, deflection versus $b$ on
+log axes — exact, Einstein 1915, Soldner 1801 — with the 1919 Sobral and Príncipe values, the
+1922, 1973, 1976 and 2004 measurements scaled to the limb. Below, the **Shapiro delay** for
+Earth–Mars, –Venus, –Mercury or –Saturn: the weak-field delay of the chord at the chosen
+closest approach next to the exact-geodesic value and the light time, and the conjunction
+"spike" over a window of days with the occultation gap (Earth–Mars at the limb: 124 μs one
+way, 247 μs for the Viking round trip).

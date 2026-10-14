@@ -97,7 +97,8 @@ All routines are vectorised over a leading time axis: inputs `(..., 3)` give out
 
 ## Testing
 - `tests/test_<module>.py` per module; validation targets in `tests/test_validation.py`.
-- Fast suite must run in < 60 s; mark century-long runs `@pytest.mark.slow`.
+- Fast suite must run in < 90 s serially (about 60 s today; `-n auto` with pytest-xdist for a quick
+  parallel run); mark century-long runs `@pytest.mark.slow`.
 - Validation tolerances (ROADMAP §4): Mercury 2-body 1PN 42.98 ± 0.1 "/cy; Newton 2-body noise floor
   < 0.5 "/cy; N-body Newton Mercury 531.6 ± 3 "/cy (absolute 100-yr fits are biased ~−2.4 by
   long-period terms, so GR checks are run-vs-run differences); Schwarzschild exact vs 1PN < 0.01 "/cy.

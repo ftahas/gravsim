@@ -3,7 +3,7 @@
 
 Run with the project venv::
 
-    .venv/bin/python scripts/validate.py            # full century runs, ~1 min, figures in figures/
+    .venv/bin/python scripts/validate.py            # full century runs, ~2 min, figures in figures/
     .venv/bin/python scripts/validate.py --years 10 # quick look (looser physics, same code paths)
 
 Physics being checked (ROADMAP section 4, CONTRIBUTING.md "Testing")
@@ -36,6 +36,26 @@ package's own force laws and integrators, and compares it with a reference:
 8. **Energy.**  ``|dE/E|`` of the N-body DOP853 run < 1e-9 over a century; of a Yoshida4
    run at dt = 0.5 day < 1e-8 over ten years.
 9. **Light deflection.**  ``4 GM / (c^2 R_sun) = 1.751 arcsec`` from constants alone.
+10. **N-body EIH (Phase 5).**  Sun + 8 planets under the Einstein-Infeld-Hoffmann equations
+    (``forces.eih``, every body relativistic, Newtonian term included): the run-vs-run
+    differences against Newton are again 42.98 / 8.62 / 3.84 / 1.35 arcsec/century for
+    Mercury / Venus / EMB / Mars, and the absolute Mercury fit is 574.6 (same bias as check 6).
+11. **EIH vs Sun-only 1PN.**  The secular difference of Mercury's ``varpi`` between the EIH run
+    and the Newton + ``pn1`` run is reported and must be below 0.02 arcsec/century: the Sun's
+    barycentric motion and the planets' potentials change the 1PN advance only periodically.
+12. **REBOUNDx oracle.**  The same nine bodies integrated for ten years by REBOUND (IAS15) with
+    the REBOUNDx ``gr_full`` force; the maximum position difference against our EIH run must be
+    below 10 km (skipped with a note when rebound/reboundx are not installed).
+13. **PPN scaling (Phase 5).**  Sun + Mercury under ``make_eih(beta, gamma)`` for
+    ``(beta, gamma) = (0, 1), (1, 0), (2, 1)`` and GR, ten years each: the differenced rate over
+    ``(2 + 2 gamma - beta)/3 * 42.98`` must be 1 to 1 percent.
+14. **Light (Phase 6).**  The exact null geodesic (``metric.null.deflection_angle``) grazing
+    the Sun is bent by 1.751 arcsec (+- 0.001); Soldner's Newtonian corpuscle by half of it.
+15. **Shapiro delay.**  One-way delay of an Earth (1 AU) to Mars (1.524 AU) signal grazing the
+    Sun at superior conjunction, ``(1 + gamma) GM/c^3 ln[(r_e + r_r + R)/(r_e + r_r - R)]`` =
+    124 microseconds (report; ~250 for the Viking round trip), and the exact null-geodesic
+    transit time minus the flat light time agrees with it to 1 percent (measured ~1e-4, the
+    second-order end-point and Fermat terms; see ``gravsim.metric.null``).
 
 Conventions: AU, day, GM in AU^3/day^2, barycentric J2000-ecliptic frame, time in days
 since J2000.0 TDB; rates in arcsec per Julian century (36525 d).  The script never touches
@@ -78,6 +98,7 @@ from gravsim.constants import (
     ARCSEC_PER_RAD,
     AU_KM,
     C_AU_DAY,
+    DAY_S,
     GM_SUN,
     JULIAN_CENTURY_DAYS,
     JULIAN_YEAR_DAYS,
@@ -89,8 +110,9 @@ from gravsim.constants import (
     R_SUN_AU,
 )
 from gravsim.data.horizons import load_j2000, load_reference_series
-from gravsim.forces import accel_newton, make_newton_pn1
+from gravsim.forces import accel_newton, make_eih, make_newton_pn1
 from gravsim.integrators import integrate, integrate_scipy
+from gravsim.metric import null
 from gravsim.metric.schwarzschild import precession_per_orbit_1pn, precession_per_orbit_numeric
 
 # Reference values of the run-vs-run 1PN advance for the inner planets [arcsec/century].
@@ -110,6 +132,24 @@ ROSETTE_ORBITS = 200  # figure-only run: 0.29 deg/orbit x 200 = 57 deg of visibl
 ROSETTE_EVERY = 20  # draw every 20th orbit of that run
 MIN_ORBITS_FOR_RATE = 3.0  # planets with fewer orbits in the span are left off the rate plot
 REPORT_ONLY = math.inf  # tolerance of a reported, not asserted, number
+EIH_VS_PN1_TOL_ARCSEC_CY = 0.02  # secular EIH-minus-pn1 difference for Mercury (check 11)
+ORACLE_YEARS = 10.0  # span of the REBOUNDx gr_full comparison (check 12)
+ORACLE_SAMPLE_DAYS = 10.0  # epochs compared with the oracle
+ORACLE_TOL_KM = 10.0
+PPN_CASES: tuple[tuple[float, float], ...] = ((1.0, 1.0), (0.0, 1.0), (1.0, 0.0), (2.0, 1.0))
+PPN_YEARS = 10.0  # span of the two-body PPN runs (check 13)
+SHAPIRO_R_EMIT_AU, SHAPIRO_R_RECV_AU = 1.0, 1.5237  # Earth and Mars at their mean distances
+MICROSECOND_DAYS = 1e-6 / DAY_S
+RAY_BUNDLE_R_SUN: tuple[float, ...] = (1.0, 1.5, 2.0, 3.0, 5.0)  # |b| of the drawn rays
+RAY_AMPLIFICATION = 1e4  # the deviation from the straight line is drawn x 1e4
+# Light-deflection measurements scaled to the solar limb [arcsec]: Dyson, Eddington & Davidson
+# 1920 (Sobral, Principe; probable errors) and the 2004 VLBI value (Shapiro et al. 2004,
+# gamma = 0.9998 +- 0.0004 -> (1 + gamma)/2 of the GR value).
+DEFLECTION_MEASUREMENTS: tuple[tuple[str, float, float], ...] = (
+    ("1919 Sobral", 1.98, 0.12),
+    ("1919 Príncipe", 1.61, 0.30),
+    ("2004 VLBI", 0.9999 * LIGHT_DEFLECTION_LIMB_ARCSEC, 0.0002 * LIGHT_DEFLECTION_LIMB_ARCSEC),
+)
 
 
 # ----------------------------------------------------------------------------- results
@@ -222,6 +262,10 @@ class Runs:
     yoshida4: Trajectory | None = None
     horizons: Trajectory | None = None
     planet_rates: dict[str, tuple[float, float]] | None = None  # 1PN-minus-Newton, N-body
+    nbody_eih: Trajectory | None = None
+    eih_planet_rates: dict[str, tuple[float, float]] | None = None  # EIH-minus-Newton, N-body
+    ppn_newton: Trajectory | None = None  # Sun + Mercury, Newton, PPN_YEARS
+    ppn_two_body: dict[tuple[float, float], Trajectory] | None = None  # (beta, gamma) -> EIH run
 
 
 def check_two_body(years: float, runs: Runs, log: Callable[[str], None]) -> list[CheckResult]:
@@ -558,13 +602,213 @@ def check_horizons(years: float, runs: Runs, log: Callable[[str], None]) -> list
     return out
 
 
-def check_light_deflection() -> list[CheckResult]:
-    """Check 9: ``4 GM / (c^2 R_sun)`` from constants only."""
+def check_eih(years: float, runs: Runs, log: Callable[[str], None]) -> list[CheckResult]:
+    """Checks 10 and 11: the EIH N-body run against Newton and against Newton + pn1."""
+    if runs.nbody_newton is None or runs.nbody_pn1 is None:
+        raise RuntimeError("check_eih needs the N-body runs of check_nbody")
+    state = load_j2000()
+    newton, pn1 = runs.nbody_newton, runs.nbody_pn1
+    tic = time.perf_counter()
+    eih = run_dop853(state, make_eih(c=C_AU_DAY), newton.t)
+    log(
+        f"N-body EIH DOP853 ({years:g} yr): {time.perf_counter() - tic:.1f} s, "
+        f"nfev {eih.meta['nfev']}"
+    )
+    runs.nbody_eih = eih
+
+    out: list[CheckResult] = []
+    rate_e, err_e = dense_rate(eih, "Mercury")
+    out.append(
+        CheckResult(
+            "nbody_eih_mercury_dense_fit",
+            rate_e,
+            NBODY_PN1_MERCURY_ARCSEC_CY,
+            3.0,
+            f"arcsec/cy, OLS err {err_e:.2g}",
+        )
+    )
+    runs.eih_planet_rates = {}
+    for body in PLANETS:
+        rate, err = perihelion_rate_difference(eih, newton, body)
+        runs.eih_planet_rates[body] = (rate, err)
+        if body in GR_RATES_ARCSEC_CY:
+            out.append(
+                CheckResult(
+                    f"nbody_eih_minus_newton_{body.lower()}",
+                    rate,
+                    GR_RATES_ARCSEC_CY[body],
+                    0.10,
+                    f"arcsec/cy, OLS err {err:.2g}",
+                )
+            )
+    rate_d, err_d = perihelion_rate_difference(eih, pn1, "Mercury")
+    out.append(
+        CheckResult(
+            "nbody_eih_minus_pn1_mercury",
+            rate_d,
+            0.0,
+            EIH_VS_PN1_TOL_ARCSEC_CY,
+            f"arcsec/cy, OLS err {err_d:.2g}: Sun-only 1PN already has the secular term",
+        )
+    )
+    sep = separation(eih, pn1, "Mercury") * AU_KM
+    out.append(
+        CheckResult(
+            "nbody_eih_vs_pn1_mercury_max_km",
+            float(sep.max()),
+            0.0,
+            REPORT_ONLY,
+            f"km over {years:g} yr (report only)",
+        )
+    )
+    return out
+
+
+def rebound_gr_full_positions(state: SystemState, t_eval: np.ndarray, c: float) -> np.ndarray:
+    """Positions (T, N, 3) of ``state`` integrated by REBOUND (IAS15) + REBOUNDx ``gr_full``.
+
+    Raises ``ImportError`` when rebound or reboundx is not installed.  ``gr_full`` implements
+    the same EIH equations (``beta = gamma = 1``) in the barycentric frame, which is the frame
+    of the cached snapshot.
+    """
+    import rebound
+    import reboundx
+
+    sim = rebound.Simulation()
+    sim.G = 1.0
+    sim.t = float(state.t)
+    sim.integrator = "ias15"
+    for i in range(state.n):
+        x, y, z = (float(q) for q in state.pos[i])
+        vx, vy, vz = (float(q) for q in state.vel[i])
+        sim.add(m=float(state.gm[i]), x=x, y=y, z=z, vx=vx, vy=vy, vz=vz)
+    rebx = reboundx.Extras(sim)
+    gr_full = rebx.load_force("gr_full")
+    rebx.add_force(gr_full)
+    gr_full.params["c"] = float(c)
+    out = [np.array([[p.x, p.y, p.z] for p in sim.particles])]
+    for t in t_eval[1:]:
+        sim.integrate(float(t))
+        out.append(np.array([[p.x, p.y, p.z] for p in sim.particles]))
+    del rebx, gr_full  # must outlive the integration
+    return np.array(out)
+
+
+def check_rebound_oracle(runs: Runs, log: Callable[[str], None]) -> list[CheckResult]:
+    """Check 12: ten years of REBOUNDx ``gr_full`` against the EIH run (skipped without rebound)."""
+    if runs.nbody_eih is None:
+        raise RuntimeError("check_rebound_oracle needs the EIH run of check_eih")
+    eih = runs.nbody_eih
+    every = int(round(ORACLE_SAMPLE_DAYS / SAMPLE_STEP_DAYS))
+    t_max = eih.t[0] + ORACLE_YEARS * JULIAN_YEAR_DAYS
+    idx = np.arange(0, eih.t.size, every)
+    idx = idx[eih.t[idx] <= t_max + 1e-9]
+    state = load_j2000()
+    try:
+        tic = time.perf_counter()
+        pos_rb = rebound_gr_full_positions(state, eih.t[idx], C_AU_DAY)
+        log(
+            f"REBOUNDx gr_full oracle ({ORACLE_YEARS:g} yr, IAS15): "
+            f"{time.perf_counter() - tic:.1f} s"
+        )
+    except ImportError as exc:
+        log(f"REBOUNDx oracle skipped: {exc}")
+        return []
+    sep_km = np.linalg.norm(eih.pos[idx] - pos_rb, axis=2) * AU_KM  # (T, N)
+    worst = sep_km.max(axis=0)
+    years = (eih.t[idx][-1] - eih.t[0]) / JULIAN_YEAR_DAYS
+    merc = state.index("Mercury")
+    return [
+        CheckResult(
+            "rebound_gr_full_vs_eih_max_km",
+            float(worst.max()),
+            0.0,
+            ORACLE_TOL_KM,
+            f"km, max over {years:g} yr and all bodies ({state.names[int(worst.argmax())]}); "
+            f"Mercury {worst[merc]:.3g} km",
+        )
+    ]
+
+
+def check_ppn(runs: Runs, log: Callable[[str], None]) -> list[CheckResult]:
+    """Check 13: Sun + Mercury under ``make_eih(beta, gamma)``, rate over the PPN prediction."""
+    state = two_body_state()
+    el = osculating_elements(state, "Mercury")
+    t_eval = daily_grid(state.t, PPN_YEARS)
+    tic = time.perf_counter()
+    newton = run_dop853(state, accel_newton, t_eval)
+    runs.ppn_newton = newton
+    runs.ppn_two_body = {}
+    out: list[CheckResult] = []
+    for beta, gamma in PPN_CASES:
+        traj = run_dop853(state, make_eih(c=C_AU_DAY, beta=beta, gamma=gamma), t_eval)
+        runs.ppn_two_body[(beta, gamma)] = traj
+        rate, err = perihelion_rate_difference(traj, newton, "Mercury")
+        factor = (2.0 + 2.0 * gamma - beta) / 3.0
+        predicted = factor * MERCURY_PRECESSION_GR_ARCSEC_CY
+        analytic = float(
+            gr_precession_arcsec_per_century(
+                el["a"], el["e"], el["gm"], c=C_AU_DAY, beta=beta, gamma=gamma
+            )
+        )
+        out.append(
+            CheckResult(
+                f"ppn_two_body_fit_over_prediction_beta{beta:g}_gamma{gamma:g}",
+                rate / predicted,
+                1.0,
+                0.01,
+                f"ratio; fit {rate:.3f} +- {err:.3f} arcsec/cy, (2+2g-b)/3 = {factor:.4f}, "
+                f"prediction {predicted:.3f} (analytic {analytic:.3f})",
+            )
+        )
+    log(
+        f"PPN two-body runs ({len(PPN_CASES)} laws, {PPN_YEARS:g} yr): "
+        f"{time.perf_counter() - tic:.1f} s"
+    )
+    return out
+
+
+def check_light() -> list[CheckResult]:
+    """Checks 9, 14 and 15: light deflection (constants, exact geodesic, Soldner) and Shapiro."""
     delta = 4.0 * GM_SUN / (C_AU_DAY**2 * R_SUN_AU) * ARCSEC_PER_RAD
+    exact = null.deflection_angle(R_SUN_AU, GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD
+    soldner = null.deflection_newtonian_corpuscle(R_SUN_AU, GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD
+    r_e, r_r = SHAPIRO_R_EMIT_AU, SHAPIRO_R_RECV_AU
+    weak = null.shapiro_delay(r_e, r_r, R_SUN_AU, GM_SUN, C_AU_DAY)
+    numeric = null.shapiro_delay_numeric(r_e, r_r, R_SUN_AU, GM_SUN, C_AU_DAY)
     return [
         CheckResult(
             "light_deflection_limb_arcsec", delta, LIGHT_DEFLECTION_LIMB_ARCSEC, 0.001, "arcsec"
-        )
+        ),
+        CheckResult(
+            "light_deflection_numeric_limb_arcsec",
+            exact,
+            LIGHT_DEFLECTION_LIMB_ARCSEC,
+            0.001,
+            "arcsec, exact null geodesic (metric.null.deflection_angle)",
+        ),
+        CheckResult(
+            "light_deflection_soldner_limb_arcsec",
+            soldner,
+            0.5 * LIGHT_DEFLECTION_LIMB_ARCSEC,
+            0.001,
+            "arcsec, Newtonian corpuscle 2 GM/(c^2 R_sun) = half of GR",
+        ),
+        CheckResult(
+            "shapiro_one_way_earth_mars_limb_us",
+            weak / MICROSECOND_DAYS,
+            124.0,
+            REPORT_ONLY,
+            f"microseconds, r_e = {r_e} AU, r_r = {r_r} AU, b = R_sun; round trip "
+            f"{2.0 * weak / MICROSECOND_DAYS:.1f} (report only)",
+        ),
+        CheckResult(
+            "shapiro_numeric_over_weak_field",
+            numeric / weak,
+            1.0,
+            0.01,
+            "ratio, exact null geodesic over the weak-field formula at the same b",
+        ),
     ]
 
 
@@ -579,7 +823,10 @@ def run_checks(
     results += check_exaggerated_c(runs, log)
     results += check_nbody(years, runs, log)
     results += check_horizons(years, runs, log)
-    results += check_light_deflection()
+    results += check_eih(years, runs, log)
+    results += check_rebound_oracle(runs, log)
+    results += check_ppn(runs, log)
+    results += check_light()
     return results, runs
 
 
@@ -592,6 +839,7 @@ def save_figures(runs: Runs, figdir: Path, log: Callable[[str], None]) -> list[P
     import matplotlib.pyplot as plt
 
     from gravsim.viz import (
+        PALETTE,
         body_colors,
         figure_grid,
         plot_energy_error,
@@ -599,6 +847,9 @@ def save_figures(runs: Runs, figdir: Path, log: Callable[[str], None]) -> list[P
         plot_precession,
         plot_separation,
     )
+    from gravsim.viz.plots import INK as PALETTE_INK
+
+    PALETTE_BLUE, PALETTE_ORANGE = PALETTE[0], PALETTE[1]
 
     figdir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
@@ -751,6 +1002,110 @@ def save_figures(runs: Runs, figdir: Path, log: Callable[[str], None]) -> list[P
     ax.set_yscale("log")
     ax.set_title("Mercury: distance from the Horizons ephemeris")
     paths.append(_save(fig, figdir / "mercury_vs_horizons.png"))
+
+    # 7. (Phase 5) Mercury's separation from Horizons for Newton, Newton + 1PN and EIH on one
+    #    plot, next to the km-level difference between the two GR laws.
+    if runs.nbody_eih is not None:
+        eih = runs.nbody_eih
+        fig, axes = figure_grid(2, panel=(5.5, 4.0))
+        ax = axes[0]
+        for traj, label in ((newton, "Newton"), (pn1, "Newton + 1PN (Sun only)"), (eih, "EIH")):
+            sub = on_common_grid(traj, ref.t)
+            plot_separation(
+                sub.t, separation(sub, ref, "Mercury", t_atol=1e-9), ax=ax, label=label
+            )
+        ax.set_yscale("log")
+        ax.set_title(f"Mercury: distance from Horizons, {years:.0f} yr")
+        ax = axes[1]
+        for body in ("Mercury", "Sun"):
+            plot_separation(eih.t, separation(eih, pn1, body), ax=ax, label=body)
+        ax.set_title("EIH minus (Newton + 1PN): the two GR laws differ by km")
+        paths.append(_save(fig, figdir / "eih_vs_horizons.png"))
+
+    # 8. (Phase 5) PPN grid: the differenced perihelion longitude of Mercury for each
+    #    (beta, gamma) with its fit and the (2 + 2 gamma - beta)/3 prediction.
+    if runs.ppn_two_body and runs.ppn_newton is not None:
+        cases = list(runs.ppn_two_body)
+        fig, axes = figure_grid(len(cases), ncols=2, panel=(5.5, 3.6))
+        t_n, w_n = perihelion_longitude_series(runs.ppn_newton, "Mercury")
+        for ax, (beta, gamma) in zip(axes, cases, strict=True):
+            _, w_p = perihelion_longitude_series(runs.ppn_two_body[(beta, gamma)], "Mercury")
+            diff = wrap_angle(w_p - w_n)
+            fit = fit_secular_rate(t_n, diff)
+            factor = (2.0 + 2.0 * gamma - beta) / 3.0
+            plot_precession(
+                t_n, diff, fit.rate, ax=ax, label=f"EIH(β={beta:g}, γ={gamma:g}) − Newton"
+            )
+            predicted = factor * MERCURY_PRECESSION_GR_ARCSEC_CY
+            t_yr = (t_n - t_n[0]) / JULIAN_YEAR_DAYS
+            ax.plot(
+                t_yr,
+                predicted / JULIAN_CENTURY_DAYS * (t_n - t_n[0]),
+                ":",
+                color="0.4",
+                lw=1.2,
+                label=f"(2+2γ−β)/3 × 42.98 = {predicted:.2f} arcsec/century",
+            )
+            ax.legend(fontsize=7, loc="upper left")
+            ax.set_title(f"β = {beta:g}, γ = {gamma:g}: factor {factor:.3f}", fontsize=10)
+        fig.suptitle("Mercury's perihelion under the PPN-EIH equations (Sun + Mercury, 10 yr)")
+        paths.append(_save(fig, figdir / "ppn_precession_grid.png"))
+
+    # 9. (Phase 6) Light bending: a bundle of rays past the Sun (deviation amplified) and the
+    #    deflection against the impact parameter with the 1919 and VLBI measurements.
+    fig, axes = figure_grid(2, panel=(5.5, 4.4))
+    ax = axes[0]
+    b_values = np.concatenate([-np.array(RAY_BUNDLE_R_SUN), RAY_BUNDLE_R_SUN]) * R_SUN_AU
+    r_max = 2.4 * max(RAY_BUNDLE_R_SUN) * R_SUN_AU
+    rays = null.ray_bundle(b_values, GM_SUN, C_AU_DAY, 600, r_max)
+    for b, (x, y) in zip(b_values, rays, strict=True):
+        y_amp = b + RAY_AMPLIFICATION * (y - b)
+        delta_arcsec = null.deflection_angle(abs(b), GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD
+        ax.plot(
+            x / R_SUN_AU,
+            y_amp / R_SUN_AU,
+            color=PALETTE_INK if abs(b) <= R_SUN_AU else PALETTE_BLUE,
+            lw=1.2,
+            label=f"b = {abs(b) / R_SUN_AU:g} R☉: {delta_arcsec:.3f}″" if b > 0 else None,
+        )
+    ax.add_patch(plt.Circle((0.0, 0.0), 1.0, color="#eda100", alpha=0.9, label="Sun"))
+    lim = r_max / R_SUN_AU * 0.75
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x [R☉]")
+    ax.set_ylabel("y [R☉]")
+    ax.set_title(f"Rays past the Sun, deviation from straight × {RAY_AMPLIFICATION:g}")
+    ax.legend(fontsize=7, loc="upper right")
+    ax = axes[1]
+    b_grid = np.geomspace(1.0, 100.0, 40) * R_SUN_AU
+    exact = np.array([null.deflection_angle(b, GM_SUN, C_AU_DAY) for b in b_grid])
+    ax.plot(
+        b_grid / R_SUN_AU, exact * ARCSEC_PER_RAD, color=PALETTE_BLUE, lw=2.0,
+        label="exact null geodesic (GR)",
+    )
+    ax.plot(
+        b_grid / R_SUN_AU,
+        null.deflection_angle_weak(b_grid, GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD,
+        "--", color=PALETTE_INK, lw=1.0, label="4GM/(c²b), Einstein 1915",
+    )
+    ax.plot(
+        b_grid / R_SUN_AU,
+        null.deflection_newtonian_corpuscle(b_grid, GM_SUN, C_AU_DAY) * ARCSEC_PER_RAD,
+        "--", color=PALETTE_ORANGE, lw=1.0, label="2GM/(c²b), Soldner 1801",
+    )
+    for k, (label, value, err) in enumerate(DEFLECTION_MEASUREMENTS):
+        ax.errorbar(
+            1.0 + 0.03 * k, value, yerr=err, fmt="o", ms=4, capsize=2, color=f"C{k + 2}",
+            label=f"{label}: {value:.3g} ± {err:.2g}″ (scaled to the limb)",
+        )
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("impact parameter b [R☉]")
+    ax.set_ylabel("deflection [arcsec]")
+    ax.set_title("Deflection versus impact parameter")
+    ax.legend(fontsize=7)
+    paths.append(_save(fig, figdir / "light_bending_rays.png"))
 
     log(f"saved {len(paths)} figures to {figdir}")
     return paths

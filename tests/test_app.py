@@ -2,7 +2,10 @@
 
 ``labs.py`` is imported from its path (``app/`` is not a package).  The back-end tests need
 only the gravsim package; the ``AppTest`` smoke tests run the actual script headlessly with
-default widget values and are skipped when streamlit or plotly is not installed.  No network.
+default widget values, once per lab (all six), and are skipped when streamlit or plotly is not
+installed.  Labs 5 and 6 live in ``app/lab_ppn.py`` and ``app/lab_light.py``; their back ends
+are tested in depth in ``tests/test_lab_ppn.py`` and ``tests/test_lab_light.py`` and only
+smoke-tested here (import, one call each, the wiring of the script).  No network.
 """
 
 from __future__ import annotations
@@ -22,8 +25,9 @@ from gravsim.metric import schwarzschild as sch
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
 
-def _load_labs():
-    spec = importlib.util.spec_from_file_location("gravsim_app_labs", APP_DIR / "labs.py")
+def _load(name: str):
+    """Import ``app/<name>.py`` from its path under a unique module name."""
+    spec = importlib.util.spec_from_file_location(f"gravsim_app_{name}", APP_DIR / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module  # dataclasses resolve annotations through sys.modules
@@ -31,7 +35,17 @@ def _load_labs():
     return module
 
 
-labs = _load_labs()
+labs = _load("labs")
+lab_ppn = _load("lab_ppn")
+lab_light = _load("lab_light")
+LAB_NAMES = (
+    "1 · Integrator lab",
+    "2 · Solar system: Newton vs GR",
+    "3 · Precession tracker",
+    "4 · Effective-potential explorer",
+    "5 · PPN playground",
+    "6 · Light-bending lab",
+)
 
 
 # --------------------------------------------------------------------------- lab 1
@@ -139,8 +153,48 @@ def test_strong_field_orbit_bound_escaping_and_captured():
     assert apsis.r.max() == pytest.approx(25.0, rel=1e-6)
 
 
+# --------------------------------------------------------------------------- labs 5 and 6
+def test_lab_ppn_backend_smoke():
+    """PPN playground back end: the factor and a short GR run recover the 43 arcsec."""
+    assert lab_ppn.ppn_factor(1.0, 1.0) == 1.0
+    assert lab_ppn.ppn_factor(0.0, 1.0) == pytest.approx(4.0 / 3.0)
+    assert callable(lab_ppn.render)
+    runs = lab_ppn.ppn_runs(1.0, 1.0, 1.0, 2.0)
+    res = lab_ppn.ppn_precession(runs)
+    assert runs.newton.names == runs.ppn.names == ("Sun", "Mercury")
+    assert res.predicted == res.gr == pytest.approx(C.MERCURY_PRECESSION_GR_ARCSEC_CY, abs=0.01)
+    assert res.rate == pytest.approx(res.predicted, abs=0.5)  # two-year span
+    assert all(abs(s) < 1.0 for s in lab_ppn.sigmas_from_gr(1.0, 1.0).values())
+
+
+def test_lab_light_backend_smoke():
+    """Light lab back end: 1.751 arcsec at the limb, Soldner's half, 124 us Earth-Mars."""
+    assert callable(lab_light.render)
+    curve = lab_light.deflection_curve(C.R_SUN_AU, 10.0 * C.R_SUN_AU, n=8)
+    limb = curve.exact[0] * C.ARCSEC_PER_RAD
+    assert limb == pytest.approx(C.LIGHT_DEFLECTION_LIMB_ARCSEC, abs=1e-3)
+    np.testing.assert_allclose(curve.newton, 0.5 * curve.weak, rtol=1e-15)
+    shapiro = lab_light.shapiro_scenario(1.0, 1.5237, C.R_SUN_AU)
+    assert shapiro.one_way * C.DAY_S * 1e6 == pytest.approx(123.6, abs=0.5)
+    assert shapiro.round_trip == 2.0 * shapiro.one_way and not shapiro.captured
+    bundle = lab_light.ray_bundle_scene(
+        lab_light.bundle_impact_parameters(C.R_SUN_AU, factors=(1.0, 2.0)),
+        body_radius=C.R_SUN_AU,
+        r_max=8.0 * C.R_SUN_AU,
+        n_points=50,
+    )
+    assert len(bundle.paths) == 4 and bundle.captured.size == 0
+
+
 # --------------------------------------------------------------------------- the app itself
-@pytest.mark.parametrize("lab_index", [0, 1, 2, 3])
+def test_app_script_lists_six_labs():
+    source = (APP_DIR / "streamlit_app.py").read_text(encoding="utf-8")
+    for name in LAB_NAMES:
+        assert f'"{name}"' in source, name
+    assert "lab_ppn.render" in source and "lab_light.render" in source
+
+
+@pytest.mark.parametrize("lab_index", range(len(LAB_NAMES)))
 def test_streamlit_app_runs_each_lab_headless(lab_index):
     pytest.importorskip("streamlit")
     pytest.importorskip("plotly")
@@ -150,6 +204,7 @@ def test_streamlit_app_runs_each_lab_headless(lab_index):
     at.run()
     assert not at.exception, at.exception
     labs_radio = at.sidebar.radio[0]
+    assert tuple(labs_radio.options) == LAB_NAMES
     labs_radio.set_value(labs_radio.options[lab_index]).run()
     assert not at.exception, at.exception
     assert at.header[0].value  # each lab draws its header
@@ -161,6 +216,14 @@ def test_streamlit_app_runs_each_lab_headless(lab_index):
         at.toggle[0].set_value(False).run()
     elif lab_index == 2:
         at.selectbox[0].set_value("Venus").run()
-    else:
+    elif lab_index == 3:
         at.slider[0].set_value(5.0).run()
+    elif lab_index == 4:
+        assert at.header[0].value.startswith("PPN playground")
+        at.slider[0].set_value(0.5).run()  # beta = 1/2: factor (2 + 2 - 0.5)/3 = 1.167
+        assert at.metric[3].value == "1.167"
+    else:
+        assert at.header[0].value.startswith("Light-bending lab")
+        assert at.metric[0].value.startswith("1.751")  # exact limb deflection, arcsec
+        at.toggle[0].set_value(False).run()  # one-way Shapiro delay
     assert not at.exception, at.exception

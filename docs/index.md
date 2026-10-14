@@ -20,11 +20,15 @@ physics plan is `ROADMAP.md`.
 | 2 | Newton, Sun + 8 planets | perturbations; Mercury's 531″/century from the planets | `forces/newton.py` |
 | 3 | Schwarzschild geodesics | effective potential, ISCO, photon sphere | `metric/schwarzschild.py` |
 | 4 | 1PN test-particle correction | the "GR term"; 43″/century; agrees with level 3 | `forces/pn1.py` |
-| 5 | EIH N-body 1PN (Phase 5) | what JPL ephemerides do; 532 + 43 ≈ 575″/century | `forces/eih.py` |
-| 6 | PPN parameters β, γ (Phase 5) | precession ∝ (2 + 2γ − β)/3 | `forces/pn1.py` already takes them |
-| 7 | light (Phase 6) | Eddington 1919: 1.75″ at the limb; Shapiro delay | `metric/null.py` |
+| 5 | EIH N-body 1PN | what JPL ephemerides do; 532 + 43 ≈ 575″/century; agrees with level 4 to 10⁻⁵″/cy | `forces/eih.py` |
+| 6 | PPN parameters β, γ | precession ∝ (2 + 2γ − β)/3; "what if gravity were a different theory?" | `forces/pn1.py`, `forces/eih.py` (both take them) |
+| 7 | light (null geodesics) | Eddington 1919: 1.75″ at the limb; capture and shadow; Shapiro delay | `metric/null.py` |
 
-Phases 0–4 (levels 0–4) are implemented, validated and taught in Lessons 01–05.
+All seven levels are implemented, validated and taught in Lessons 01–08; the theory pages are
+[Newton](theory/newton.md), [Integrators](theory/integrators.md),
+[Measurement](theory/measurement.md), [1PN](theory/pn1.md),
+[Schwarzschild](theory/schwarzschild.md), [EIH](theory/eih.md), [PPN](theory/ppn.md) and
+[Light](theory/light.md).
 
 ## Conventions used throughout
 
@@ -41,9 +45,9 @@ Phases 0–4 (levels 0–4) are implemented, validated and taught in Lessons 01�
 
 ```bash
 scripts/setup_env.sh                              # uv venv + editable install (dev extras)
-.venv/bin/python -m pytest -q                     # fast suite (~15 s)
-.venv/bin/python -m pytest -q -m slow             # century runs + notebook execution (~2 min)
-.venv/bin/python scripts/validate.py              # all validation checks + figures/
+.venv/bin/python -m pytest -q                     # fast suite (~1 min)
+.venv/bin/python -m pytest -q -m slow             # century runs + notebook execution (~4 min)
+.venv/bin/python scripts/validate.py              # all 47 validation checks + figures/ (~75 s)
 .venv/bin/jupyter lab notebooks/                  # the lessons
 uv pip install -e ".[app]" && .venv/bin/streamlit run app/streamlit_app.py   # the lab
 uv pip install -e ".[docs]" && .venv/bin/mkdocs serve                       # these pages

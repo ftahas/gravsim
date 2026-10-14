@@ -6,16 +6,16 @@ The validation targets of `ROADMAP.md` §4 are the test suite: `tests/test_valid
 `figures/`. Everything runs from the cached ephemerides; no test touches the network.
 
 ```bash
-.venv/bin/python -m pytest -q                 # fast suite: unit tests + 10-year validation, ~15 s
-.venv/bin/python -m pytest -q -m slow         # century runs + notebook execution, ~2 min
-.venv/bin/python scripts/validate.py          # 100-year runs, table + figures, ~40 s
+.venv/bin/python -m pytest -q                 # fast suite: unit tests + 10-year validation, ~1 min
+.venv/bin/python -m pytest -q -m slow         # century runs + notebook execution, ~4 min
+.venv/bin/python scripts/validate.py          # 100-year runs, table + figures, ~75 s
 ```
 
 ## Targets and results
 
 Produced by `scripts/validate.py` (DOP853, `rtol=1e-12`, `atol=1e-15`, daily samples, 100
 years; "fit" = least-squares slope of the osculating longitude of perihelion, "passages" = the
-same from perihelion passages). All 31 checks pass.
+same from perihelion passages). All 47 checks pass.
 
 | check | value | expected | tolerance |
 |---|---|---|---|
@@ -35,6 +35,13 @@ same from perihelion passages). All 31 checks pass.
 | relative energy error, N-body DOP853, 100 yr | 6.8e−14 | 0 | 1e−9 |
 | relative energy error, N-body Yoshida4, dt = 0.5 d, 10 yr | 2.2e−9 | 0 | 1e−8 |
 | light deflection at the limb, 4GM/(c²R☉) | 1.7512″ | 1.751 | 0.001 |
+| N-body EIH (every body relativistic), Mercury, fit | 572.2 ″/cy | 574.6 | 3 |
+| N-body EIH − Newton: Mercury / Venus / EMB / Mars | 42.977 / 8.637 / 3.851 / 1.351 ″/cy | 42.98 / 8.62 / 3.84 / 1.35 | 0.10 |
+| N-body EIH − (Newton + 1PN), Mercury: secular difference; max separation | 1.5e−5 ″/cy; 5.1 km | 0; — | 0.02; report |
+| REBOUNDx `gr_full` (IAS15) vs EIH, Sun + 8 planets, 10 yr: max separation | 0.035 km | 0 | 10 |
+| PPN two-body, 10 yr: fit / [(2+2γ−β)/3 × 42.98], (β,γ) = (1,1) / (0,1) / (1,0) / (2,1) | 1.0002 / 1.0001 / 1.0003 / 1.0004 | 1 | 0.01 |
+| light deflection at the limb, exact null geodesic; Soldner 2GM/(c²R☉) | 1.7512″; 0.8756″ | 1.751; 0.8755 | 0.001 |
+| Shapiro delay Earth → Mars grazing the Sun, one way; exact / weak field | 123.6 μs; 1.0001 | ~124; 1 | report; 0.01 |
 
 ## Reading the table
 
@@ -50,6 +57,18 @@ same from perihelion passages). All 31 checks pass.
   per century while the 1PN run stays within ~200 km (`figures/mercury_vs_horizons.png`).
 * The ROADMAP row "2-body vs Kepler < 1e−10 AU over 100 orbits" is not attainable in double
   precision with absolute coordinates (floor ~4e−10 AU); the noise-floor row replaces it.
+* **EIH and the Sun-only 1PN term agree** on every secular rate ($1.5\times10^{-5}$″/cy for
+  Mercury) and differ by at most 5 km per century: the Sun's barycentric velocity
+  ($v_\odot/v_\mercury \approx 4\times10^{-4}$) and the planets' potentials at Mercury enter the
+  1PN acceleration only through periodic terms (see [EIH](theory/eih.md)). REBOUNDx `gr_full`
+  integrates the same equations independently and agrees with `forces.eih` to 35 m over ten
+  years (`tests/test_eih.py` also checks the accelerations themselves to $10^{-10}$).
+* **PPN**: Mercury measures only $(2+2\gamma-\beta)/3$ ([PPN](theory/ppn.md)); the four runs
+  reproduce the factor to a few parts in $10^4$ (`figures/ppn_precession_grid.png`).
+* **Light**: the exact null geodesic exceeds $4GM/(c^2 b)$ by $(15\pi/16)\,GM/(c^2 b)$
+  ($10^{-5}$ at the limb) and the Shapiro transit exceeds the weak-field formula by $10^{-4}$
+  (second-order end-point and Fermat terms, [Light](theory/light.md)); both are far inside the
+  tolerances and far outside the integrator noise.
 
 ## Unit-level tests
 
@@ -58,7 +77,10 @@ IAU/CODATA definitions, $GM_\odot = k^2$, DE440 mass ratios, body tables), `test
 (containers, shape validation, frames, immutability), `test_horizons.py` (cache consistency:
 snapshot = series sample 0, ecliptic frame from the inclinations, Kepler periods, round trips,
 mocked Horizons queries; one real-network test marked `network`), `test_forces.py`,
-`test_integrators.py`, `test_analysis.py`, `test_schwarzschild.py`, `test_viz.py`, plus
-`test_app.py` (lab back end and a headless Streamlit run) and `test_notebooks.py` (structure;
-execution under `slow`). Analytic references (Kepler, harmonic oscillator, known formulas) are
+`test_integrators.py`, `test_analysis.py`, `test_schwarzschild.py`, `test_eih.py` (hand-written
+EIH sums, test-particle limit = Newton + pn1, permutation symmetry, REBOUNDx accelerations and
+positions, PPN scaling), `test_null.py` (deflection series and strong-field limit, ray paths,
+Shapiro forms and the exact transit), `test_viz.py`, plus `test_app.py`, `test_lab_ppn.py` and
+`test_lab_light.py` (lab back ends and headless Streamlit runs) and `test_notebooks.py`
+(structure; execution under `slow`). Analytic references (Kepler, harmonic oscillator, known formulas) are
 preferred over snapshot tests throughout.
