@@ -49,7 +49,7 @@ five precomputed scenarios in the browser.
 ## Running things
 
 ```bash
-scripts/setup_env.sh                              # uv venv + editable install (dev extras)
+scripts/setup_env.sh                              # uv venv + editable install (all extras)
 .venv/bin/python -m pytest -q                     # fast suite (~2 min)
 .venv/bin/python -m pytest -q -m slow             # century runs + notebook execution (~6 min)
 .venv/bin/python -m pytest -q -m web              # browser tests of the web front end

@@ -9,9 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Install
-        run: |
-          uv venv .venv
-          uv pip install -e ".[dev,app,docs,web]"
+        run: scripts/setup_env.sh
       - name: Lint
         run: .venv/bin/ruff check gravsim tests scripts app
       - name: Fast suite
@@ -32,8 +30,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Install
         run: |
-          uv venv .venv
-          uv pip install -e ".[dev,app,docs,web]"
+          scripts/setup_env.sh
           .venv/bin/python -m playwright install --with-deps chromium
       - name: Browser suite
         run: .venv/bin/python -m pytest -q -m web tests/test_web.py

@@ -29,7 +29,7 @@ two runs on the same time grid; the wobble and the numerical error cancel and th
 Python 3.12, managed with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-scripts/setup_env.sh            # uv venv + editable install with the dev extras
+scripts/setup_env.sh            # uv venv + editable install with all extras (also used by CI)
 # or by hand:
 uv venv .venv && uv pip install -e ".[dev]"
 ```

@@ -875,7 +875,7 @@ def check_rebound_oracle(runs: Runs, log: Callable[[str], None]) -> list[CheckRe
             f"REBOUNDx gr_full oracle ({ORACLE_YEARS:g} yr, IAS15): "
             f"{time.perf_counter() - tic:.1f} s"
         )
-    except ImportError as exc:
+    except (ImportError, OSError) as exc:  # OSError: REBOUNDx C library failed to load
         log(f"REBOUNDx oracle skipped: {exc}")
         return []
     sep_km = np.linalg.norm(eih.pos[idx] - pos_rb, axis=2) * AU_KM  # (T, N)

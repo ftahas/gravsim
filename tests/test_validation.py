@@ -116,6 +116,21 @@ from gravsim.integrators import integrate, integrate_scipy
 from gravsim.metric import null
 from gravsim.metric.schwarzschild import precession_per_orbit_1pn, precession_per_orbit_numeric
 
+
+def _import_oracle(name: str):
+    """Import rebound / reboundx, or skip when missing *or* when their C library fails to load.
+
+    ``pytest.importorskip`` only catches ImportError, but a REBOUNDx built from source with a
+    stale rpath fails in ``ctypes`` with OSError (scripts/setup_env.sh patches the rpath).
+    """
+    import importlib
+
+    try:
+        return importlib.import_module(name)
+    except (ImportError, OSError) as exc:
+        pytest.skip(f"{name} unavailable: {exc}")
+
+
 RTOL, ATOL = 1e-12, 1e-15
 GR_RATES = {"Mercury": MERCURY_PRECESSION_GR_ARCSEC_CY, "Venus": 8.62, "EMB": 3.84, "Mars": 1.35}
 NBODY_PN1_MERCURY = 574.6
@@ -178,8 +193,8 @@ def nbody_runs(years: float) -> tuple[Trajectory, Trajectory]:
 
 def rebound_gr_full_positions(state: SystemState, t_eval: np.ndarray) -> np.ndarray:
     """Positions (T, N, 3) from REBOUND (G = 1, IAS15) with the REBOUNDx ``gr_full`` force."""
-    rebound = pytest.importorskip("rebound")
-    reboundx = pytest.importorskip("reboundx")
+    rebound = _import_oracle("rebound")
+    reboundx = _import_oracle("reboundx")
     sim = rebound.Simulation()
     sim.G = 1.0
     sim.t = float(state.t)

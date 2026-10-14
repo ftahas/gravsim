@@ -60,6 +60,21 @@ from gravsim.data.horizons import load_j2000
 from gravsim.forces import accel_newton, make_eih, make_newton_pn1, make_pn1
 from gravsim.integrators import integrate_scipy
 
+
+def _import_oracle(name: str):
+    """Import rebound / reboundx, or skip when missing *or* when their C library fails to load.
+
+    ``pytest.importorskip`` only catches ImportError, but a REBOUNDx built from source with a
+    stale rpath fails in ``ctypes`` with OSError (scripts/setup_env.sh patches the rpath).
+    """
+    import importlib
+
+    try:
+        return importlib.import_module(name)
+    except (ImportError, OSError) as exc:
+        pytest.skip(f"{name} unavailable: {exc}")
+
+
 RTOL, ATOL = 1e-12, 1e-15
 GR_RATES = {"Mercury": MERCURY_PRECESSION_GR_ARCSEC_CY, "Venus": 8.62, "EMB": 3.84, "Mars": 1.35}
 PPN_CASES = [(1.0, 1.0), (0.0, 1.0), (1.0, 0.0), (2.0, 1.0)]
@@ -132,8 +147,8 @@ def dop853(state: SystemState, accel, t_eval: np.ndarray) -> Trajectory:
 
 def rebound_gr_full(state: SystemState, c: float):
     """REBOUND simulation (G = 1, masses = gm, IAS15) with the REBOUNDx ``gr_full`` force."""
-    rebound = pytest.importorskip("rebound")
-    reboundx = pytest.importorskip("reboundx")
+    rebound = _import_oracle("rebound")
+    reboundx = _import_oracle("reboundx")
     sim = rebound.Simulation()
     sim.G = 1.0
     sim.t = state.t
@@ -340,7 +355,7 @@ def test_mercury_correction_close_to_pn1_and_dominated_by_sun_pair_terms(j2000):
 
 # --------------------------------------------------------------------------- (5) REBOUNDx oracle
 def test_rebound_gr_full_acceleration_at_t0(j2000):
-    rebound = pytest.importorskip("rebound")
+    rebound = _import_oracle("rebound")
     s = j2000
     sim, rebx, gr_full = rebound_gr_full(s, C_AU_DAY)
     rebound.clibrebound.reb_simulation_update_acceleration(ctypes.byref(sim))
