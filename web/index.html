@@ -61,7 +61,7 @@
         <label><input type="radio" name="model" value="gr" checked> GR</label>
         <label><input type="radio" name="model" value="both"> both</label>
       </div>
-      <label class="field">
+      <label class="field" id="amp-field">
         <span class="field-name">Amplification k <output id="amp-out">1</output></span>
         <input id="amp" type="range" min="0" max="5" step="0.01" value="0">
       </label>
@@ -85,7 +85,7 @@
       <label class="check"><input id="paths" type="checkbox" checked> Full paths</label>
       <label class="check"><input id="labels" type="checkbox" checked> Labels</label>
       <label class="check"><input id="grid" type="checkbox" checked> Ecliptic grid</label>
-      <label class="check" title="Markers at the perihelia of the displayed orbit (local minima of the Sun–Mercury distance, refined between samples), up to the current time"><input id="peri" type="checkbox"><span id="peri-label"> Perihelion trail (Mercury)</span></label>
+      <label class="check" id="peri-wrap" title="Markers at the perihelia of the displayed orbit (local minima of the Sun–Mercury distance, refined between samples), up to the current time"><input id="peri" type="checkbox"><span id="peri-label"> Perihelion trail (Mercury)</span></label>
     </section>
 
     <section class="group" id="group-camera">
@@ -123,6 +123,10 @@
     <section id="info-numbers">
       <h2>Numbers</h2>
       <dl id="numbers"></dl>
+      <details id="numbers-details" hidden>
+        <summary>Run details</summary>
+        <dl id="numbers-more"></dl>
+      </details>
     </section>
     <section id="info-notes" hidden>
       <h2>Notes</h2>

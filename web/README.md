@@ -46,8 +46,8 @@ panel likewise behind "Info"):
 | Play / ◀ ▶ / ⏮, Speed | animate along the samples with linear interpolation; speed is a log slider around "one full run per minute"; space bar toggles play |
 | Time | slider over the series; the readout gives `year +12.3 (2012-04-13)` from `t` in days since J2000.0 (2000-01-01T12:00), proper time for the geodesic, path fraction for the rays |
 | Model | Newton, GR, or both (Newton drawn as dim paths and wireframe ghosts) |
-| Amplification k | log slider 1 … 10⁵; displayed position = Newton + k · (GR − Newton), the difference taken from `delta_gr` (computed in float64 before the float32 cast) when the payload has it; readout of Mercury's true and displayed GR − Newton displacement in km |
-| Perihelion trail | markers at the perihelia of the *displayed* Mercury orbit up to the current time, so the advance becomes an arc. Each marker is the local minimum of the displayed Sun–Mercury distance nearest to a `peri_idx_gr` sample, refined between samples by the parabola through the three distances around it (as `analysis.precession.perihelion_passages`) with the position interpolated at that time; `peri_idx_newton` seeds the grey markers on the Newton path in the same way. The GR samples themselves are *not* the perihelia of Newton + k · (GR − Newton) once k ≠ 1: the GR passages lag Newton's, so at a GR perihelion the difference points backwards along the orbit and k × that would drag the marker behind Newton's perihelion (a retrograde arc); the displayed perihelia advance k × 43″ per century ahead of the Newtonian ones |
+| Amplification k | shown for `solar_system` and `earth_moon` only (in the c/100 rosette GR − Newton is already millions of km, so the slider is hidden and `setAmplification` is a no-op there); log slider 1 … 10⁵; displayed position = Newton + k · (GR − Newton), the difference taken from `delta_gr` (computed in float64 before the float32 cast) when the payload has it; readout of Mercury's true and displayed GR − Newton displacement in km |
+| Perihelion trail | shown only when the payload has `peri_idx_*` arrays (on by default in the rosette); markers at the perihelia of the *displayed* Mercury orbit up to the current time, so the advance becomes an arc. Each marker is the local minimum of the displayed Sun–Mercury distance nearest to a `peri_idx_gr` sample, refined between samples by the parabola through the three distances around it (as `analysis.precession.perihelion_passages`) with the position interpolated at that time; `peri_idx_newton` seeds the grey markers on the Newton path in the same way. The GR samples themselves are *not* the perihelia of Newton + k · (GR − Newton) once k ≠ 1: the GR passages lag Newton's, so at a GR perihelion the difference points backwards along the orbit and k × that would drag the marker behind Newton's perihelion (a retrograde arc); the displayed perihelia advance k × 43″ per century ahead of the Newtonian ones |
 | Frame | barycentric, heliocentric (minus the Sun), or Earth-centred (earth_moon) |
 | Trail | length of the bright trail behind each body (log slider, days); "Full paths" toggles the dim complete orbits |
 | Labels, Ecliptic grid | CSS2D body labels; rings at 1-2-5 radii in the ecliptic plane |
@@ -68,7 +68,7 @@ angle.
   scenario,               // current scenario id (getter)
   loadScenario(id),       // Promise, resolves after the scenario is built and a frame rendered
   setTime(fraction),      // 0 … 1 along the series
-  setAmplification(k),    // k >= 1
+  setAmplification(k),    // k >= 1; no-op where the slider is hidden
   play(), pause(),
   stats: { frames, lastError },   // rendered-frame counter; last error message or null
 }
@@ -107,3 +107,18 @@ Arrays per scenario (units in `meta.units`, J2000 ecliptic axes, +z north):
 `meta` always carries `id`, `title`, `names`, `units`, `frame`, `t0` and `n_samples`; any other
 numeric entry is shown in the info panel, strings go to the notes, and `meta.arrays` documents
 the arrays (shown as tooltips in the array index).
+
+## Labels and the info panel
+
+* Labels are anchored with `CSS2DObject.center` (three r160's `CSS2DRenderer` rewrites each
+  label's `style.transform` every frame, so stylesheet offsets would be ignored). Body labels
+  sit on the drawn sphere's edge, above-right; the Moon's goes below-right so Earth and Moon
+  stay readable.
+* The same renderer ignores the visibility of a label's ancestors; `syncLabelVisibility` combines
+  each label's own toggle (`userData.show`) with its parents' before every label render, so the
+  "Ecliptic grid" toggle hides the ring labels too. Grid ring labels also hide when their ring is
+  under 40 px on screen, inside the drawn Sun, or inside the named rings (horizon, photon sphere,
+  ISCO).
+* The Numbers panel lists the headline results first (`HEADLINE_KEYS` in `app.js`, with
+  human-readable names and units derived from the key suffixes) and folds everything else
+  (solver settings, GM values, raw lists) under "Run details".

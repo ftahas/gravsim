@@ -155,10 +155,15 @@ input[type="range"] {
   text-shadow: 0 0 3px #000, 0 0 6px #000;
   padding: 1px 4px;
   white-space: nowrap;
-  transform: translate(10px, -6px);
 }
+/* CSS2DRenderer owns `transform`; the anchor corner comes from CSS2DObject.center and the
+   gap from these margins (see makeLabel in app.js) */
+.label.ne { margin: -1px 0 0 2px; }
+.label.se { margin: 1px 0 0 2px; }
+.label.nw { margin: -1px 0 0 -2px; }
+.label.sw { margin: 1px 0 0 -2px; }
 .label.ring { color: var(--ink-2); font-family: var(--mono); font-size: 10px; }
-.label.grid { color: var(--muted); font-family: var(--mono); font-size: 10px; transform: translate(4px, 4px); }
+.label.grid { color: var(--muted); font-family: var(--mono); font-size: 10px; }
 
 #status {
   position: absolute;
@@ -171,6 +176,8 @@ input[type="range"] {
   background: rgba(11, 13, 18, 0.55);
 }
 #status[hidden] { display: none; }
+/* the hidden attribute must win over component display rules (.field, .check, .group) */
+[hidden] { display: none !important; }
 .status-box {
   pointer-events: auto;
   background: var(--panel);
@@ -217,7 +224,7 @@ input[type="range"] {
 #info section[hidden] { display: none; }
 
 dl { margin: 0; display: grid; grid-template-columns: minmax(96px, 1fr) minmax(0, max-content); gap: 2px 10px; }
-dt { color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+dt { color: var(--ink-2); font-size: 12px; overflow-wrap: break-word; hyphens: none; }
 dd { margin: 0; font-family: var(--mono); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
 dt.sub { padding-left: 10px; }
 dt.group-row {
@@ -275,3 +282,14 @@ dt.group-row {
   #controls, #info { transition: none; }
   .spinner { animation-duration: 2s; }
 }
+
+/* headline numbers first; solver internals and raw metadata fold away */
+#numbers-details { margin-top: 10px; }
+#numbers-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  user-select: none;
+}
+#numbers-details > summary:hover { color: var(--ink-2); }
+#numbers-details > dl { margin-top: 6px; }

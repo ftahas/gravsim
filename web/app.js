@@ -105,6 +105,45 @@ const META_RESERVED = new Set([
 // ----------------------------------------------------------------------------- small helpers
 const $ = (id) => document.getElementById(id);
 
+// Info panel: these top-level meta keys lead, in this order; every other key folds into
+// "Run details" (solver settings, GM values, grids, raw lists that the legend already shows).
+const HEADLINE_KEYS = [
+  'mercury', 'perihelion_rates', 'advance', 'moon', 'sun_wobble', 'orbit', 'c_scale',
+  'advance_per_orbit_deg', 'advance_per_orbit_rad', 'turns_per_orbit', 'advance_1pn_rad',
+  'E', 'L', 'r_peri', 'r_apo', 'r_horizon', 'r_photon_sphere', 'r_isco',
+  'r_circular_stable', 'r_circular_unstable', 'b_crit', 'limb_deflection_arcsec',
+];
+const KEY_UNITS = [
+  ['_arcsec_cy', '″/cy'], ['_rad_per_orbit', 'rad/orbit'], ['_deg_per_orbit', '°/orbit'],
+  ['_deg_yr', '°/yr'], ['_au_day', 'AU/d'], ['_arcsec', '″'], ['_km', 'km'], ['_days', 'd'],
+  ['_r_sun', 'R☉'], ['_au', 'AU'], ['_rad', 'rad'], ['_deg', '°'],
+];
+const KEY_WORDS = { gr: 'GR', '1pn': '1PN', pn1: '1PN', eih: 'EIH', err: '±', isco: 'ISCO', emb: 'EMB' };
+
+/** 'gr_minus_newton_arcsec_cy' -> 'GR − Newton (″/cy)'. */
+function humanKey(key) {
+  let unit = '';
+  let k = String(key);
+  for (const [suffix, u] of KEY_UNITS) {
+    if (k.endsWith(suffix) && k.length > suffix.length) {
+      unit = u;
+      k = k.slice(0, -suffix.length);
+      break;
+    }
+  }
+  const text = k.split('_').map((w) => KEY_WORDS[w] ?? w).join(' ')
+    .replace(/\bminus newton\b/g, '− Newton').replace(/\bminus\b/g, '−')
+    .replace(/\bv over c\b/g, 'v/c').replace(/\bover\b/g, '/');
+  return unit ? `${text} (${unit})` : text;
+}
+
+/** Amplification factor for display: 2.50, 31.6, 1 000, 100 000. */
+function fmtAmp(k) {
+  if (k < 10) return k.toFixed(2);
+  if (k < 100) return k.toFixed(1);
+  return Math.round(k).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u2009');
+}
+
 function fmtNum(v) {
   if (!Number.isFinite(v)) return String(v);
   if (Number.isInteger(v) && Math.abs(v) < 1e9) return String(v);
@@ -309,11 +348,43 @@ async function fetchPayload(url) {
 }
 
 // ----------------------------------------------------------------------------- scene helpers
-function makeLabel(text, cls = '') {
+/**
+ * Text label. CSS2DRenderer rewrites `style.transform` every frame, so offsets cannot live in
+ * the stylesheet: `anchor` picks which corner of the label sits on the anchor point through
+ * CSS2DObject.center ('ne' = label above-right of the point, 'se' below-right, 'nw', 'sw',
+ * 'c' centred); the small pixel gap comes from the matching `.label.<anchor>` margin.
+ */
+const ANCHORS = { c: [0.5, 0.5], ne: [0, 1], se: [0, 0], nw: [1, 1], sw: [1, 0] };
+function makeLabel(text, cls = '', anchor = 'ne') {
   const el = document.createElement('div');
-  el.className = `label ${cls}`.trim();
+  el.className = `label ${cls} ${anchor}`.replace(/\s+/g, ' ').trim();
   el.textContent = text;
-  return new CSS2DObject(el);
+  const obj = new CSS2DObject(el);
+  const [cx, cy] = ANCHORS[anchor] ?? ANCHORS.c;
+  obj.center.set(cx, cy);
+  return obj;
+}
+
+/** Point on a circle of radius r at angle `deg` in the xy plane, for placing labels. */
+function onCircle(r, deg) {
+  const a = (deg * Math.PI) / 180;
+  return [r * Math.cos(a), r * Math.sin(a), 0];
+}
+
+/**
+ * CSS2DRenderer (three r160) decides a label's visibility from the label alone, ignoring its
+ * ancestors, so hiding the grid group would leave the grid labels on screen. Each label keeps
+ * the wanted state in `userData.show`; this pass combines it with the ancestors' visibility
+ * right before the label render.
+ */
+function syncLabelVisibility(root) {
+  root.traverse((o) => {
+    if (!o.isCSS2DObject) return;
+    if (o.userData.show === undefined) o.userData.show = true;
+    let vis = o.userData.show;
+    for (let p = o.parent; vis && p; p = p.parent) if (!p.visible) vis = false;
+    o.visible = vis;
+  });
 }
 
 function circleGeometry(radius, segments = 180) {
@@ -373,8 +444,9 @@ function makeEclipticGrid(extent, unit) {
     const ln = new THREE.LineLoop(circleGeometry(r, 128), mat);
     ln.frustumCulled = false;
     group.add(ln);
-    const lab = makeLabel(`${fmtNum(r)} ${unit}`, 'grid');
-    lab.position.set(r * Math.SQRT1_2, -r * Math.SQRT1_2, 0);
+    const lab = makeLabel(`${fmtNum(r)} ${unit}`, 'grid', 'se');
+    lab.position.set(...onCircle(r, -45));
+    lab.userData.radius = r;
     group.add(lab);
   }
   return group;
@@ -425,7 +497,27 @@ class BaseView {
 
   setGridVisible(on) { if (this.grid) this.grid.visible = on; }
 
-  setLabelsVisible(on) { for (const l of this.labels) l.visible = on; }
+  setLabelsVisible(on) {
+    this.showLabels = on;
+    for (const l of this.labels) l.userData.show = on;
+  }
+
+  /**
+   * Ring labels of the grid: drop those whose ring is smaller on screen than `minPx` (they
+   * would pile up on the central body) or inside `gridLabelMinR` (named rings live there).
+   */
+  updateGridLabels(pxPerUnit) {
+    if (!this.grid) return;
+    const minPx = this.gridLabelMinPx(pxPerUnit);
+    const minR = this.gridLabelMinR ?? 0;
+    for (const o of this.grid.children) {
+      if (!o.isCSS2DObject) continue;
+      const r = o.userData.radius ?? 0;
+      o.userData.show = r * pxPerUnit >= minPx && r > minR;
+    }
+  }
+
+  gridLabelMinPx() { return 40; }
 
   /** Marker radius that keeps a roughly constant angular size with the camera distance. */
   markerScale(size) {
@@ -538,7 +630,11 @@ class NBodyView extends BaseView {
         color, wireframe: true, transparent: true, opacity: 0.45,
       }));
       ghostMesh.visible = false;
-      const label = makeLabel(name === 'EMB' ? 'Earth (EMB)' : name);
+      // labels sit on the sphere's edge (mesh-local units scale with the drawn radius); the
+      // Moon's goes below-right so it does not cover the Earth's above-right
+      const below = name === 'Moon';
+      const label = makeLabel(name === 'EMB' ? 'Earth (EMB)' : name, '', below ? 'se' : 'ne');
+      label.position.set(...onCircle(1, below ? -45 : 45));
       mesh.add(label);
       this.labels.push(label);
       this.group.add(path, trail, ghost, mesh, ghostMesh);
@@ -563,6 +659,11 @@ class NBodyView extends BaseView {
 
     this.grid = makeEclipticGrid(this.outerR, this.unit);
     this.group.add(this.grid);
+  }
+
+  gridLabelMinPx(pxPerUnit) {
+    const sun = this.markerScale(BODY_SIZE.Sun ?? 1) * pxPerUnit;
+    return Math.max(40, 2.5 * sun);
   }
 
   /** Marker cloud for up to `seeds.length` perihelia; `fillPeri` places them. */
@@ -731,6 +832,10 @@ class NBodyView extends BaseView {
     this.trailSamples = Math.max(2, Math.round(days / this.dtDays) + 1);
   }
 
+  setPathOpacity(opacity) {
+    for (const b of this.bodies) b.path.material.opacity = opacity;
+  }
+
   setPathsVisible(on) {
     this.showPaths = on;
     for (const b of this.bodies) {
@@ -871,15 +976,17 @@ class GeodesicView extends BaseView {
 
     const hole = new THREE.Mesh(new THREE.SphereGeometry(2, 48, 32), new THREE.MeshBasicMaterial({ color: 0x000000 }));
     this.group.add(hole);
+    // label angles chosen so the three ring labels and the grid's -45 deg labels never meet
     const rings = [
-      [2, RING_COLORS.horizon, 'horizon r = 2'],
-      [3, RING_COLORS.photon, 'photon sphere r = 3'],
-      [6, RING_COLORS.isco, 'ISCO r = 6'],
+      [2, RING_COLORS.horizon, 'horizon r = 2', -135, 'sw'],
+      [3, RING_COLORS.photon, 'photon sphere r = 3', 45, 'ne'],
+      [6, RING_COLORS.isco, 'ISCO r = 6', 135, 'nw'],
     ];
-    for (const [r, color, text] of rings) {
+    this.gridLabelMinR = 6 * 1.5;
+    for (const [r, color, text, deg, anchor] of rings) {
       const ln = ring(r, color, 0.9);
-      const lab = makeLabel(text, 'ring');
-      lab.position.set(r * Math.SQRT1_2, r * Math.SQRT1_2, 0);
+      const lab = makeLabel(text, 'ring', anchor);
+      lab.position.set(...onCircle(r, deg));
       ln.add(lab);
       this.labels.push(lab);
       this.group.add(ln);
@@ -887,7 +994,8 @@ class GeodesicView extends BaseView {
     this.marker = new THREE.Mesh(this.sphereGeo, new THREE.MeshBasicMaterial({
       color: new THREE.Color(PALETTE[0]).lerp(new THREE.Color(0xffffff), 0.45),
     }));
-    const lab = makeLabel('test body');
+    const lab = makeLabel('test body', '', 'ne');
+    lab.position.set(...onCircle(1, 45));
     this.marker.add(lab);
     this.labels.push(lab);
     this.group.add(this.marker);
@@ -1071,18 +1179,20 @@ class RaysView extends BaseView {
       this.massMarker = new THREE.Mesh(this.sphereGeo, new THREE.MeshBasicMaterial({ color: BODY_COLORS.Sun }));
       this.group.add(this.massMarker);
     }
-    const massLabel = makeLabel(String(this.meta.body || 'mass'), 'ring');
-    massLabel.position.set(0, 0, 0);
+    const bodyR = typeof this.meta.body_radius === 'number' ? this.meta.body_radius : 0;
+    const massLabel = makeLabel(String(this.meta.body || 'mass'), 'ring', 'sw');
+    massLabel.position.set(...onCircle(bodyR, -135));
     this.group.add(massLabel);
     this.labels.push(massLabel);
     if (this.rPhoton && this.rPhoton > 1e-3 * this.extent) {
       const ln = ring(this.rPhoton, RING_COLORS.photon, 0.9);
-      const lab = makeLabel(`photon sphere r = ${fmtNum(this.rPhoton)}`, 'ring');
-      lab.position.set(this.rPhoton * Math.SQRT1_2, this.rPhoton * Math.SQRT1_2, 0);
+      const lab = makeLabel(`photon sphere r = ${fmtNum(this.rPhoton)}`, 'ring', 'ne');
+      lab.position.set(...onCircle(this.rPhoton, 45));
       ln.add(lab);
       this.labels.push(lab);
       this.group.add(ln);
     }
+    this.gridLabelMinR = 1.5 * Math.max(this.rPhoton || 0, bodyR);
     this.grid = makeEclipticGrid(this.extent, this.unit);
     this.group.add(this.grid);
   }
@@ -1237,6 +1347,12 @@ class App {
     return Math.max(this.camera.position.distanceTo(this.controls.target), 1e-9);
   }
 
+  /** Screen pixels per world unit at the orbit target. */
+  pixelsPerUnit() {
+    const halfH = Math.max($('canvas-host').clientHeight, 1) / 2;
+    return halfH / (this.cameraDistance() * Math.tan((this.camera.fov * Math.PI) / 360));
+  }
+
   /** Place the camera along `dir` from the origin at `dist` (default: keep the distance). */
   setCamera(dir, dist = null) {
     const d = dist ?? this.cameraDistance();
@@ -1345,8 +1461,10 @@ class App {
       this.updateClipPlanes();
       if (this.view) {
         this.view.update(this.frac);
+        this.view.updateGridLabels(this.pixelsPerUnit());
         this.ui.syncReadouts();
       }
+      syncLabelVisibility(this.scene);
       this.renderer.render(this.scene, this.camera);
       this.labelRenderer.render(this.scene, this.camera);
       this.stats.frames += 1;
@@ -1400,14 +1518,16 @@ class UI {
       select: $('scenario-select'), source: $('source'), play: $('play'), back: $('step-back'),
       fwd: $('step-fwd'), rewind: $('rewind'), speed: $('speed'), speedOut: $('speed-out'),
       time: $('time'), timeOut: $('time-out'), amp: $('amp'), ampOut: $('amp-out'),
-      ampReadout: $('amp-readout'), peri: $('peri'), periLabel: $('peri-label'), trail: $('trail'), trailOut: $('trail-out'),
+      ampReadout: $('amp-readout'), ampField: $('amp-field'), peri: $('peri'), periWrap: $('peri-wrap'),
+      periLabel: $('peri-label'), trail: $('trail'), trailOut: $('trail-out'),
       paths: $('paths'), labels: $('labels'), grid: $('grid'), presets: $('camera-presets'),
       presetEarth: $('preset-earth'), frameEarth: $('frame-earth-label'),
       groupModel: $('group-model'), groupFrame: $('group-frame'), groupDisplay: $('group-display'),
       topScenario: $('topbar-scenario'),
       infoTitle: $('info-title'), infoBlurb: $('info-blurb'), infoExplain: $('info-explain'),
       legendSec: $('info-legend'), legendBody: $('legend-table').querySelector('tbody'),
-      numbers: $('numbers'), notesSec: $('info-notes'), notes: $('notes'),
+      numbers: $('numbers'), numbersMore: $('numbers-more'), numbersDetails: $('numbers-details'),
+      notesSec: $('info-notes'), notes: $('notes'),
       paramsSec: $('info-params'), params: $('params'), arraysSec: $('info-arrays'), arrays: $('arrays'),
       controls: $('controls'), info: $('info'), toggleControls: $('toggle-controls'), toggleInfo: $('toggle-info'),
     };
@@ -1501,18 +1621,26 @@ class UI {
     const id = entry.id;
     e.select.value = id;
     e.topScenario.textContent = entry.title || meta.title || id;
-    for (const b of [e.play, e.back, e.fwd, e.rewind]) b.disabled = false;
+    for (const b of [e.play, e.rewind]) b.disabled = false;
+    // the rays view animates a continuous fraction, it has no samples to step through
+    for (const b of [e.back, e.fwd]) b.disabled = kind === 'rays';
 
     const nbody = kind === 'nbody';
     e.groupModel.hidden = !nbody || !view.gr;
+    // amplifying GR - Newton only helps when the difference is invisible at true scale; in the
+    // rosette (c/100) it is already millions of km and k = 1000 throws Mercury off-screen
+    e.ampField.hidden = !nbody || !view.gr || id === 'rosette';
     e.groupFrame.hidden = !nbody;
     e.frameEarth.hidden = !(nbody && view.earthIdx >= 0);
     e.presetEarth.hidden = !(nbody && view.earthIdx >= 0);
     e.trail.disabled = kind === 'rays';
-    e.peri.disabled = !((nbody && (view.periGR || view.periN)) || (kind === 'geodesic' && view.periIdx));
-    e.peri.checked = false;
+    const hasPeri = (nbody && Boolean(view.periGR || view.periN)) || (kind === 'geodesic' && Boolean(view.periIdx));
+    e.periWrap.hidden = !hasPeri;
+    e.peri.disabled = !hasPeri;
+    // the rosette's point is the perihelion sweep, so its markers start on
+    e.peri.checked = hasPeri && id === 'rosette';
     e.periLabel.textContent = kind === 'geodesic' ? ' Periapsis markers' : ' Perihelion trail (Mercury)';
-    if (view.setPeriVisible) view.setPeriVisible(false);
+    if (view.setPeriVisible) view.setPeriVisible(e.peri.checked);
 
     // defaults per scenario
     const frameRadio = document.querySelector('input[name="frame"][value="bary"]');
@@ -1525,7 +1653,11 @@ class UI {
 
     if (nbody) {
       const span = view.spanDays;
-      this.trailDays = id === 'rosette' ? span : Math.min(span, id === 'earth_moon' ? 60 : 365);
+      // rosette: the full path (faint) shows the rosette, a two-orbit bright trail the current
+      // ellipse; a full-span bright trail would paint one thick band
+      const period = meta.orbit && typeof meta.orbit.period_days === 'number' ? meta.orbit.period_days : 88;
+      this.trailDays = id === 'rosette' ? Math.min(span, 2 * period) : Math.min(span, id === 'earth_moon' ? 60 : 365);
+      if (view.setPathOpacity) view.setPathOpacity(id === 'rosette' ? 0.35 : 0.28);
       e.trail.value = String(this.trailFraction(this.trailDays, span));
     } else if (kind === 'geodesic') {
       e.trail.value = '0.87';
@@ -1590,8 +1722,7 @@ class UI {
   }
 
   syncAmp() {
-    const k = Math.pow(10, Number(this.el.amp.value));
-    this.el.ampOut.textContent = k >= 100 ? `${k.toExponential(1)}` : k.toFixed(k >= 10 ? 1 : 2);
+    this.el.ampOut.textContent = fmtAmp(Math.pow(10, Number(this.el.amp.value)));
   }
 
   /** Per-frame readouts (time, Mercury displacement); the slider follows while playing. */
@@ -1603,8 +1734,9 @@ class UI {
       const d = v.mercuryDisplacement(v.currentIndex ?? 0);
       if (d) {
         const name = v.names[v.mercIdx];
-        this.el.ampReadout.textContent =
-          `${name}: GR − Newton = ${fmtKm(d.trueAU * AU_KM)}, shown × k = ${fmtKm(d.shownAU * AU_KM)}`;
+        this.el.ampReadout.textContent = this.el.ampField.hidden
+          ? `${name}: GR − Newton = ${fmtKm(d.trueAU * AU_KM)}`
+          : `${name}: GR − Newton = ${fmtKm(d.trueAU * AU_KM)}, shown × k = ${fmtKm(d.shownAU * AU_KM)}`;
       }
     }
     if (this.app.playing) this.syncTime();
@@ -1638,49 +1770,60 @@ class UI {
     }
     e.legendSec.hidden = kind !== 'rays';
 
-    // numbers and notes from meta
+    // numbers and notes from meta: headline keys first, the rest under "Run details"
     e.numbers.innerHTML = '';
+    e.numbersMore.innerHTML = '';
     e.notes.innerHTML = '';
     const notes = [];
-    const addRow = (key, value, sub = false) => {
+    const addRow = (dl, key, value, sub = false) => {
       const dt = document.createElement('dt');
-      dt.textContent = key;
+      dt.textContent = humanKey(key);
+      dt.title = key;
       if (sub) dt.className = 'sub';
       const dd = document.createElement('dd');
       dd.textContent = value;
-      e.numbers.append(dt, dd);
+      dl.append(dt, dd);
     };
-    const addGroup = (label) => {
+    const addGroup = (dl, path) => {
       const dt = document.createElement('dt');
       dt.className = 'group-row';
-      dt.textContent = label;
-      e.numbers.append(dt);
+      dt.textContent = path.map(humanKey).join(' · ');
+      dl.append(dt);
     };
-    const used = view.usedMetaKeys || new Set();
     // nested dicts become a group header (full path) followed by their leaves (short keys)
-    const walk = (obj, prefix, depth) => {
+    const walk = (dl, obj, path) => {
       const nested = [];
       for (const key of Object.keys(obj)) {
-        if (depth === 0 && (META_RESERVED.has(key) || used.has(key))) continue;
         const v = obj[key];
-        const label = prefix ? `${prefix}.${key}` : key;
-        if (typeof v === 'number') addRow(key, fmtNum(v), depth > 0);
-        else if (typeof v === 'boolean') addRow(key, String(v), depth > 0);
+        if (v === null || v === undefined) continue;
+        const sub = path.length > 0;
+        const label = [...path, key].join('.');
+        if (typeof v === 'number') addRow(dl, key, fmtNum(v), sub);
+        else if (typeof v === 'boolean') addRow(dl, key, String(v), sub);
         else if (typeof v === 'string') notes.push([label, v]);
-        else if (isNumberList(v)) addRow(key, v.map(fmtNum).join(', '), depth > 0);
+        else if (isNumberList(v)) addRow(dl, key, v.map(fmtNum).join(', '), sub);
         else if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')) {
           v.forEach((x, i) => notes.push([v.length > 1 ? `${label} ${i + 1}` : label, x]));
-        } else if (isPlainObject(v) && depth < 3) nested.push([label, v]);
+        } else if (isPlainObject(v) && path.length < 3) nested.push([key, v]);
       }
-      for (const [label, v] of nested) {
+      for (const [key, v] of nested) {
         const hasLeaf = Object.values(v).some((x) => typeof x === 'number' || typeof x === 'boolean' || isNumberList(x));
-        if (hasLeaf) addGroup(label);
-        walk(v, label, depth + 1);
+        if (hasLeaf) addGroup(dl, [...path, key]);
+        walk(dl, v, [...path, key]);
       }
     };
-    walk(meta, '', 0);
+    const used = view.usedMetaKeys || new Set();
+    const shown = (key) => !META_RESERVED.has(key) && !used.has(key) && meta[key] !== null && meta[key] !== undefined;
+    const head = {};
+    const rest = {};
+    for (const key of HEADLINE_KEYS) if (key in meta && shown(key)) head[key] = meta[key];
+    for (const key of Object.keys(meta)) if (!(key in head) && shown(key)) rest[key] = meta[key];
+    walk(e.numbers, head, []);
+    walk(e.numbersMore, rest, []);
     const nSamples = view.T ?? meta.n_samples;
-    if (nSamples !== undefined) addRow('samples', String(nSamples));
+    if (typeof nSamples === 'number') addRow(e.numbersMore, 'samples', String(nSamples));
+    e.numbersDetails.hidden = e.numbersMore.childElementCount === 0;
+    e.numbersDetails.open = e.numbers.childElementCount === 0;
     if (typeof meta.frame === 'string') notes.unshift(['frame', meta.frame]);
     if (meta.units) notes.unshift(['units', unitsText(meta)]);
     for (const [key, text] of notes) {
@@ -1734,7 +1877,8 @@ class UI {
     for (const entryIdx of payload.index) {
       const dt = document.createElement('dt');
       dt.textContent = entryIdx.name;
-      const doc = typeof docs[entryIdx.name] === 'string' ? docs[entryIdx.name] : null;
+      const raw = docs[entryIdx.name];
+      const doc = typeof raw === 'string' ? raw : isPlainObject(raw) && typeof raw.description === 'string' ? raw.description : null;
       if (doc) dt.title = doc;
       const dd = document.createElement('dd');
       dd.textContent = `${entryIdx.dtype} (${entryIdx.shape.join(', ')})`;
@@ -1753,7 +1897,8 @@ window.__gravsim = {
   loadScenario: (id) => app.loadScenario(id),
   setTime: (frac) => app.setTime(frac),
   setAmplification: (k) => {
-    if (!app.view || !app.view.setAmplification) return;
+    // a no-op where the slider is hidden (rosette, black hole, light rays), as in the UI
+    if (!app.view || !app.view.setAmplification || app.ui.el.ampField.hidden) return;
     app.view.setAmplification(k);
     app.ui.el.amp.value = String(Math.log10(Math.max(Number(k) || 1, 1)));
     app.ui.syncAmp();

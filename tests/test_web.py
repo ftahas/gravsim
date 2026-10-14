@@ -42,8 +42,11 @@ WEB_DIR = ROOT / "web"
 FIGURES_DIR = ROOT / "figures"
 EXPORT_SCRIPT = ROOT / "scripts" / "export_web.py"
 VIEWPORT = {"width": 1400, "height": 900}
-NBODY_IDS = {"solar_system", "rosette", "earth_moon"}
-"""Scenarios with a GR - Newton amplification (``setAmplification`` applies)."""
+NBODY_IDS = {"solar_system", "earth_moon"}
+"""Scenarios with a GR - Newton amplification slider (``setAmplification`` applies).
+
+The rosette is an N-body view too, but at c/100 the GR - Newton difference is already
+millions of km, so the page hides the slider there and ``setAmplification`` is a no-op."""
 READY_TIMEOUT_MS = 240_000
 """The first scenario (solar_system, 100 yr EIH + Newton) is built on demand by the server."""
 SMALL_EXPORT = [
@@ -151,8 +154,19 @@ def _load_and_exercise(page, scenario_id: str, figure: Path | None = None) -> in
     page.evaluate("() => window.__gravsim.setAmplification(1000)")
     if scenario_id in NBODY_IDS:
         amp = page.evaluate("() => (document.getElementById('amp-out') || {}).textContent || ''")
-        match = re.search(r"[-+]?\d[\d.]*(?:e[-+]?\d+)?", amp.replace(",", ""), re.IGNORECASE)
+        digits = amp.replace(",", "").replace("\u2009", "").replace(" ", "")
+        match = re.search(r"[-+]?\d[\d.]*(?:e[-+]?\d+)?", digits, re.IGNORECASE)
         assert match and abs(float(match.group()) - 1000) < 0.5, f"{scenario_id}: k readout {amp!r}"
+    if scenario_id == "solar_system":
+        # the headline view: both models, k = 1000, and Mercury's perihelion trail, so the GR
+        # perihelia visibly run ahead of the Newtonian ones in the saved figure
+        page.check('input[name="model"][value="both"]')
+        page.check("#peri")
+    elif scenario_id == "rosette":
+        assert page.is_checked("#peri"), "rosette: perihelion markers should start on"
+        assert page.is_hidden("#amp-field"), "rosette: amplification slider should be hidden"
+    elif scenario_id in {"light_rays", "earth_moon"}:
+        assert page.is_hidden("#peri-wrap"), f"{scenario_id}: no perihelion data, no toggle"
     frames1 = page.evaluate(FRAMES_JS)
     page.wait_for_function(
         "(f) => window.__gravsim.stats.frames > f + 2", arg=frames1, timeout=20_000
