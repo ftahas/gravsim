@@ -14,6 +14,12 @@ dependencies = [
     "numba>=0.60",
 ]
 
+[project.scripts]
+# Console entry point: unlike `python -m gravsim.web`, it does not put the current directory on
+# sys.path, so it also works from the project's parent folder (where the project directory
+# itself would otherwise shadow the package as a namespace package named `gravsim`).
+gravsim-web = "gravsim.web.__main__:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8",

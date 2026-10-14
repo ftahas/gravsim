@@ -1,4 +1,10 @@
-"""``python -m gravsim.web [--host 127.0.0.1] [--port 8000] [--web-dir web]`` runs the server."""
+"""``gravsim-web [--host 127.0.0.1] [--port 8000] [--web-dir web]`` runs the server.
+
+``python -m gravsim.web`` does the same, but only from a directory where ``gravsim`` resolves
+to this package: from the project's parent folder, ``-m`` puts that folder first on sys.path
+and the project directory (which has no ``__init__.py``) shadows the package as a namespace
+package. The ``gravsim-web`` console script has no such problem.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +16,7 @@ from gravsim.web.server import WEB_DIR, create_app
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="python -m gravsim.web",
+        prog="gravsim-web",
         description="Serve the gravsim web front end and its scenario API with uvicorn.",
     )
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")

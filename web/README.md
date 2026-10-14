@@ -16,8 +16,15 @@ blank canvas.
 With the FastAPI server (scenarios are built on demand and cached in memory):
 
 ```bash
-.venv/bin/python -m gravsim.web --port 8000      # then open http://127.0.0.1:8000/
+.venv/bin/gravsim-web --port 8000      # then open http://127.0.0.1:8000/
 ```
+
+> **Run it from any folder.** Use the `gravsim-web` command (`.venv/bin/gravsim-web`, or
+> `/home/<you>/gravsim/.venv/bin/gravsim-web` from elsewhere). `python -m gravsim.web` fails
+> with "No module named gravsim.web.__main__" when started from the project's parent folder:
+> `-m` puts the current folder first on the import path, and the project directory, which has
+> no `__init__.py`, then shadows the package as a namespace package named `gravsim`.
+
 
 The page tries both `data/manifest.json` (static export) and `GET /api/scenarios` and loads
 every scenario from the `url` of its entry (`data/<id>.bin` or `/api/scenario/<id>`). A 404

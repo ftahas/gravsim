@@ -56,6 +56,6 @@ scripts/setup_env.sh                              # uv venv + editable install (
 .venv/bin/python scripts/validate.py              # all 64 validation checks + figures/ (~2.5 min)
 .venv/bin/jupyter lab notebooks/                  # the lessons
 uv pip install -e ".[app]" && .venv/bin/streamlit run app/streamlit_app.py   # the lab
-uv pip install -e ".[web]" && .venv/bin/python -m gravsim.web                # the web front end
+uv pip install -e ".[web]" && .venv/bin/gravsim-web                         # the web front end
 uv pip install -e ".[docs]" && .venv/bin/mkdocs serve                       # these pages
 ```

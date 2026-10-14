@@ -3,7 +3,7 @@
 * :mod:`gravsim.web.scenarios` -- pure scenario builders (``list_scenarios``, ``build_scenario``).
 * :mod:`gravsim.web.payload` -- ``encode``/``decode`` of the binary payload the browser loads.
 * :mod:`gravsim.web.server` -- ``create_app()`` (FastAPI) serving ``web/`` and ``/api/...``.
-* ``python -m gravsim.web [--port 8000]`` runs the server with uvicorn.
+* ``gravsim-web [--port 8000]`` (or ``python -m gravsim.web``) runs the server with uvicorn.
 
 FastAPI is imported only by ``server``; this package and the two pure modules need numpy only.
 """

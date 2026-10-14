@@ -67,7 +67,7 @@ gravsim/
                       horizons_ref.npz (100-yr series) + horizons_moon_ref.npz (10-yr Earth + Moon)
   viz/                plots.py (matplotlib, 3-D orbits, measurement plots), interactive.py (plotly)
   web/                scenarios.py (the five web scenarios, pure), payload.py (binary format),
-                      server.py (FastAPI), __main__.py (python -m gravsim.web)
+                      server.py (FastAPI), __main__.py (the gravsim-web command)
 web/                  index.html, app.js, style.css: the Three.js front end (no build step)
 notebooks/            lessons 01–09 (physics first, then code; ~2.5 min total)
 app/                  streamlit_app.py (seven interactive labs, 3-D) + labs.py, lab_ppn.py,
@@ -290,7 +290,7 @@ Python (`gravsim/web/scenarios.py`) and shipped as float32 arrays; the browser o
 
 ```bash
 uv pip install -e ".[web]"                                # fastapi + uvicorn
-.venv/bin/python -m gravsim.web --port 8000               # API server; open http://127.0.0.1:8000/
+.venv/bin/gravsim-web --port 8000                         # API server; open http://127.0.0.1:8000/
 .venv/bin/python scripts/export_web.py --out web/data     # or: static export (manifest.json + <id>.bin)
 python -m http.server -d web 8000                         #     and serve web/ from anywhere
 .venv/bin/python -m pytest -q -m web tests/test_web.py    # headless browser tests (figures/web_<id>.png)

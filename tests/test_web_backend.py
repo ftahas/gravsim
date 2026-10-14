@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -571,3 +572,28 @@ def test_export_web_cli_parses_set(tmp_path):
     assert isinstance(manifest, list) and len(manifest) == 1
     assert manifest[0]["id"] == "light_rays" and manifest[0]["url"] == "d/light_rays.bin"
     assert manifest[0]["built_with"] == {"n_rays": 1, "compact": True}
+
+
+def test_console_script_runs_from_the_projects_parent_folder(tmp_path) -> None:
+    """``gravsim-web`` must work from any folder, including the project's parent.
+
+    From the parent folder, ``python -m gravsim.web`` puts the current directory first on
+    sys.path and the project directory (no ``__init__.py``) shadows the package as a namespace
+    package, so ``gravsim.web`` resolves to the front-end folder ``web/``. The console script
+    does not add the current directory, so it is immune; reproduce that layout and check.
+    """
+    import shutil
+    import subprocess
+
+    script = Path(sys.executable).parent / "gravsim-web"
+    if not script.exists():
+        found = shutil.which("gravsim-web")
+        if found is None:
+            pytest.skip("gravsim-web console script not installed (pip install -e .)")
+        script = Path(found)
+    (tmp_path / "gravsim" / "web").mkdir(parents=True)  # project dir lookalike, no __init__.py
+    out = subprocess.run(
+        [str(script), "--help"], cwd=tmp_path, capture_output=True, text=True, timeout=120
+    )
+    assert out.returncode == 0, out.stderr
+    assert "--port" in out.stdout

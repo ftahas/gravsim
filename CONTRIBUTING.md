@@ -125,7 +125,8 @@ cdn.jsdelivr.net via an import map, no build step) in `web/index.html`, `web/app
 - `gravsim/web/server.py`: `create_app() -> FastAPI` serving `web/` at `/` (index.html at `/`),
   `GET /api/health`, `GET /api/scenarios` (JSON list; each entry has `url` = `/api/scenario/<id>`),
   `GET /api/scenario/{id}?<params>` (`application/octet-stream`, in-process cache keyed by id+params).
-  `python -m gravsim.web [--port 8000]` runs uvicorn.
+  The `gravsim-web [--port 8000]` console script runs uvicorn (`python -m gravsim.web` too, but
+  not from the project's parent folder, where the project directory shadows the package).
 - `scripts/export_web.py [--out web/data]` writes `manifest.json` (same entries, `url` = `data/<id>.bin`)
   and the `.bin` files for the default params so `web/` works from any static server
   (`python -m http.server -d web`). The front end fetches `data/manifest.json`, falls back to
