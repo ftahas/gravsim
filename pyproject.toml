@@ -1,0 +1,53 @@
+[project]
+name = "gravsim"
+version = "0.1.0"
+description = "Solar system simulation: Newtonian gravity vs. General Relativity (pedagogical)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "matplotlib>=3.6",
+    "astropy>=6.0",
+    "astroquery>=0.4.7",
+    "numba>=0.60",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3",
+    "ruff>=0.5",
+    "jupyter>=1.0",
+    "nbformat>=5.9",
+    "nbconvert>=7",
+    "rebound>=4.4",
+    "reboundx>=4.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gravsim*"]
+
+[tool.setuptools.package-data]
+gravsim = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: long-running validation tests (deselect with -m 'not slow')",
+    "network: tests that need internet access",
+]
+addopts = "-m 'not network'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "NPY"]
