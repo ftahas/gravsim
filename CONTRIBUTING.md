@@ -17,8 +17,9 @@ phases and the physics; this file is the engineering contract every module must 
 - Frame: barycentric, J2000 ecliptic. Time `t` is days since J2000.0 TDB. Cached ephemeris in
   `gravsim/data/j2000.json` (snapshot) and `gravsim/data/horizons_ref.npz` (100-year series).
 - Default system: `constants.DEFAULT_BODIES` = Sun + 8 planets (Earth = EMB, outer planets =
-  system barycenters). Body 0 is the Sun; code takes the central body as an explicit argument
-  (`central=0` or `central="Sun"`) rather than assuming it.
+  system barycenters). Body 0 is the Sun; code takes the central body as an explicit argument rather than assuming
+  it. Force laws (which only see arrays) take an integer index (`central=state.index("Sun")`);
+  analysis routines that receive a Trajectory take the name (`central="Sun"`).
 - Arrays are float64, C-contiguous; positions/velocities shape (N, 3); time series (T, N, 3).
 - Functions are pure: never mutate input arrays; return new arrays.
 - A body with `gm == 0` is a test particle: it feels forces but exerts none.
@@ -28,7 +29,7 @@ phases and the physics; this file is the engineering contract every module must 
   `.relative_to(name)`, `.to_barycentric()`, `.subset(names)`.
 - `Trajectory(t, pos, vel, gm, names, meta)`; `.body(name)`, `.relative(name, central)`,
   `.state_at(i)`, `.final_state`, `Trajectory.from_states(list)`.
-  `meta` records integrator, dt, force law, c, etc. (free-form dict).
+  `meta` records integrator, dt, and whatever the caller adds (force law, c); free-form dict.
 
 ## Force laws (`gravsim/forces/`)
 Every force law is an `AccelFn`: `accel(pos, vel, gm, t) -> acc` with shapes (N,3),(N,3),(N,),float -> (N,3).
@@ -98,7 +99,8 @@ All routines are vectorised over a leading time axis: inputs `(..., 3)` give out
 - `tests/test_<module>.py` per module; validation targets in `tests/test_validation.py`.
 - Fast suite must run in < 60 s; mark century-long runs `@pytest.mark.slow`.
 - Validation tolerances (ROADMAP §4): Mercury 2-body 1PN 42.98 ± 0.1 "/cy; Newton 2-body noise floor
-  < 0.5 "/cy; N-body Newton Mercury 531.6 ± 3 "/cy; Schwarzschild exact vs 1PN < 0.01 "/cy.
+  < 0.5 "/cy; N-body Newton Mercury 531.6 ± 3 "/cy (absolute 100-yr fits are biased ~−2.4 by
+  long-period terms, so GR checks are run-vs-run differences); Schwarzschild exact vs 1PN < 0.01 "/cy.
 - Prefer analytic references (Kepler, harmonic oscillator, known formulas) over snapshot tests.
 
 ## Style

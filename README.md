@@ -1,1 +1,207 @@
-# gravsim
+# gravsim — Newton vs. Einstein in the solar system
+
+A pedagogical Python package (guided project, undergraduate level) that integrates the solar
+system first with Newtonian gravity and then with General Relativity, and makes the difference
+*measurable*: Le Verrier's unexplained 43 arcseconds per century of Mercury's perihelion
+advance come out of the simulation itself.
+
+The package implements its own force laws (Newton, 1PN test-particle correction with PPN
+β, γ), its own integrators (Euler, symplectic Euler, Leapfrog, RK4, Yoshida 4/6, plus a
+`solve_ivp`/DOP853 wrapper for production runs), exact Schwarzschild geodesics, and a
+measurement toolkit (Kepler elements, Laplace–Runge–Lenz vector, perihelion tracking, secular
+fits, run-vs-run differencing). JPL Horizons data are used only as initial conditions and as
+an independent reference. See `ROADMAP.md` for the physics plan and `CONTRIBUTING.md` for the
+engineering contract (units, frames, API).
+
+![Mercury's perihelion: Newton vs Newton + 1PN](figures/mercury_perihelion_newton_vs_gr.png)
+
+*Left: Mercury's osculating longitude of perihelion over a century in a Sun + 8 planet run,
+with and without the 1PN term — the planetary wobble dominates. Right: the difference of the
+two runs on the same time grid; the wobble and the numerical error cancel and the GR advance,
+42.98″/century, remains.*
+
+## Install
+
+Python 3.12, managed with [uv](https://docs.astral.sh/uv/):
+
+```bash
+scripts/setup_env.sh            # uv venv + editable install with the dev extras
+# or by hand:
+uv venv .venv && uv pip install -e ".[dev]"
+```
+
+Everything runs through the venv: `.venv/bin/python ...`. Dependencies: numpy, scipy,
+matplotlib, astropy, astroquery, numba (dev: pytest, ruff, jupyter, rebound/reboundx as
+external oracles). The cached ephemerides in `gravsim/data/` make the package fully usable
+offline; `astroquery` is only needed to refresh them.
+
+## Units and conventions
+
+Length in AU, time in days, masses as **GM in AU³/day²**; the speed of light is always an
+explicit parameter (`c=constants.C_AU_DAY`) so lessons can scale it down. Frame: solar-system
+barycentre, J2000 ecliptic; `t` is days since J2000.0 TDB. Default system: Sun + 8 planets
+(Earth = Earth–Moon barycentre, outer planets = system barycentres). Angles in radians inside,
+precession rates reported in arcsec per Julian century.
+
+## Layout
+
+```
+gravsim/
+  constants.py        GM values (DE440), c, unit conversions, reference numbers
+  bodies.py           SystemState (one instant) and Trajectory (time series)
+  forces/             newton.py (numba kernel + numpy fallback), pn1.py (1PN, PPN β γ), combine()
+  integrators/        fixed_step.py (Euler … Yoshida6), driver.py, scipy_wrap.py (DOP853)
+  analysis/           kepler.py, elements.py, precession.py, conserved.py, compare.py
+  metric/             schwarzschild.py (effective potential, Binet orbit, geodesics, ISCO)
+  data/               horizons.py + j2000.json (snapshot) + horizons_ref.npz (100-yr series)
+  viz/                plots.py (matplotlib, 3-D orbits, measurement plots), interactive.py (plotly)
+notebooks/            lessons 01–05 (one per phase; physics first, then code; ~1 min total)
+app/                  streamlit_app.py (four interactive labs, 3-D) + labs.py (its pure back end)
+docs/                 mkdocs pages: theory with derivations, lesson index, app, validation
+scripts/
+  validate.py         end-to-end physics validation, prints a table and saves figures/
+  fetch_j2000.py      refresh the cached ephemerides (network)
+tests/                one test_<module>.py per package module, test_validation.py (ROADMAP §4),
+                      test_app.py and test_notebooks.py
+figures/              output of scripts/validate.py
+```
+
+A minimal run:
+
+```python
+import numpy as np
+from gravsim.data.horizons import load_j2000
+from gravsim.forces import accel_newton, make_newton_pn1
+from gravsim.integrators import integrate_scipy
+from gravsim.analysis import perihelion_rate_difference
+
+state = load_j2000()                                   # Sun + 8 planets at J2000.0
+t_eval = np.arange(0.0, 36526.0, 1.0)                  # one Julian century, daily samples
+newton = integrate_scipy(state, accel_newton, t_eval)  # DOP853, rtol 1e-12, atol 1e-15
+gr = integrate_scipy(state, make_newton_pn1(central=state.index("Sun")), t_eval)
+rate, err = perihelion_rate_difference(gr, newton, "Mercury")   # -> 42.98 ± 0.001 "/cy
+```
+
+## Tests and validation
+
+```bash
+.venv/bin/python -m pytest -q                 # fast suite, ~20 s (slow and network tests deselected)
+.venv/bin/python -m pytest -q -m slow         # century-long validation runs + notebook execution, ~2 min
+.venv/bin/python -m pytest -q -m network      # one live Horizons query against the cache
+.venv/bin/ruff check gravsim tests scripts app
+.venv/bin/python scripts/validate.py          # all checks below + figures/, ~40 s
+.venv/bin/python scripts/validate.py --years 10 --figures /tmp/quick   # quick look
+```
+
+`tests/test_validation.py` contains the same checks as `scripts/validate.py`: fast variants
+over ten years (or 50 orbits) where the signal is already measurable, century-long variants
+marked `@pytest.mark.slow`. Every package module has its own `tests/test_<module>.py`
+(analytic references wherever possible); `tests/test_notebooks.py` checks the lessons'
+structure and, under `slow`, executes them; `tests/test_app.py` tests the lab back end and
+runs the Streamlit app headlessly. No test touches the network unless asked to with
+`-m network`.
+
+## Validation results
+
+Produced by `.venv/bin/python scripts/validate.py` (100-year runs, DOP853 with rtol 1e-12,
+atol 1e-15, samples every day; Sun + Mercury runs start from the J2000 snapshot moved to their
+own barycentre; "fit" = least-squares slope of the osculating longitude of perihelion;
+"passages" = the same from perihelion passages only). All 31 checks pass.
+
+| # | Check | Value | Expected | Tolerance |
+|---|---|---|---|---|
+| 1 | 2-body Newton, Mercury, 100 yr, DOP853: fitted rate (noise floor) | 0.0012 ″/cy | 0 | 0.5 |
+| 1 | … from perihelion passages | 0.0012 ″/cy | 0 | 0.5 |
+| 1 | Leapfrog, dt = 0.5 d, 10 yr: spurious precession | −196 972 ″/cy | — | report |
+| 1 | Yoshida4, dt = 0.5 d, 10 yr: spurious precession | 2 634 ″/cy | — | report |
+| 2 | 2-body (Newton + 1PN) minus Newton, Mercury, 100 yr | 42.9805 ″/cy | 42.98 | 0.10 |
+| 2 | 2-body Newton + 1PN, undifferenced fit | 42.9817 ″/cy | 42.98 | 0.10 |
+| 2 | analytic 6πGM/(c²a(1−e²)) for Mercury's osculating a, e | 42.9807 ″/cy | 42.98 | 0.10 |
+| 2 | fit minus analytic | −0.0002 ″/cy | 0 | 0.10 |
+| 3 | Schwarzschild exact (Binet orbit), Mercury | 42.9808 ″/cy | 42.98 | 0.10 |
+| 3 | Schwarzschild exact minus 1PN formula | 1.0e−4 ″/cy | 0 | 0.01 |
+| 4 | c/100, 50 orbits: fitted rate / analytic (same c) | 0.9981 | 1 | 0.01 |
+| 4 | … differenced against Newton / analytic | 0.9981 | 1 | 0.01 |
+| 4 | … from perihelion passages / analytic | 0.9985 | 1 | 0.01 |
+| 5 | N-body Newton, Mercury, 100 yr: fit | 529.2 ″/cy | 531.6 | 3 |
+| 5 | … from perihelion passages | 529.3 ″/cy | 531.6 | 3 |
+| 6 | N-body Newton + 1PN, Mercury: fit | 572.2 ″/cy | 574.6 | 3 |
+| 6 | … from perihelion passages | 572.2 ″/cy | 574.6 | 3 |
+| 6 | N-body (Newton + 1PN) minus Newton, Mercury | 42.977 ″/cy | 42.98 | 0.10 |
+| 6 | … Venus | 8.637 ″/cy | 8.62 | 0.10 |
+| 6 | … Earth–Moon barycentre | 3.851 ″/cy | 3.84 | 0.10 |
+| 6 | … Mars | 1.351 ″/cy | 1.35 | 0.10 |
+| 7 | Horizons series (20-day samples, 100 yr), Mercury: fit | 572.2 ″/cy | 574.1 | 5 |
+| 7 | … from perihelion passages | 572.3 ″/cy | 574.1 | 5 |
+| 7 | Newton run vs Horizons, Mercury: mean / final separation | 5 162 / 5 743 km | — | report |
+| 7 | Newton + 1PN run vs Horizons, Mercury: mean / final separation | 72 / 176 km | — | report |
+| 7 | final separation ratio 1PN / Newton | 0.031 | < 1 | — |
+| 8 | relative energy error, N-body DOP853, 100 yr | 6.8e−14 | 0 | 1e−9 |
+| 8 | relative energy error, N-body Yoshida4, dt = 0.5 d, 10 yr | 2.2e−9 | 0 | 1e−8 |
+| 9 | light deflection at the solar limb, 4GM/(c²R☉) | 1.7512″ | 1.751 | 0.001 |
+
+Notes on the numbers:
+
+* The absolute N-body rates (529.2 Newton, 572.2 with 1PN) sit 2.4″/cy below the textbook
+  531.6 / 574.6. That is not a force-law error: the Horizons series itself, fitted over the same
+  100 years by the same method, gives 572.2 rather than the 574.1 observed. An ordinary
+  least-squares slope of the osculating series over one century is biased by the long-period
+  planetary terms (the Jupiter–Saturn and Venus–Earth terms do not average out over 100
+  years), and the missing Moon, asteroids and Pluto contribute ~0.1″/cy. The *differences*
+  between runs on the same grid are free of this bias, which is why every GR assertion is
+  differential: 42.977 ± 0.001 (N-body) and 42.9805 ± 0.001 (2-body) against 42.98.
+* The DOP853 noise floor (0.0012″/cy) is four orders of magnitude below the GR signal; the
+  fixed-step integrators at half-day steps are not (Leapfrog −2·10⁵, Yoshida4 +2.6·10³ ″/cy),
+  which is the lesson of Phase 1: the GR term cannot be read off an integrator whose own
+  precession is larger than 43″/cy.
+* Horizons (DE441) contains GR, so the Newton run drifts away from it along the orbit by
+  thousands of km per century while the 1PN run stays within ~200 km — Le Verrier's anomaly
+  seen "from data" (`figures/mercury_vs_horizons.png`).
+* The ROADMAP's "2-body vs Kepler < 1e-10 AU over 100 orbits (DOP853)" row is not attainable
+  in double precision with this formulation (~4e-10 AU floor, ~3e-8 AU at the default
+  tolerances; see `gravsim/integrators/scipy_wrap.py`); the noise-floor row above is the
+  meaningful replacement and is what the suite asserts.
+
+Headline figures (all produced by the script):
+
+| | |
+|---|---|
+| `figures/mercury_perihelion_newton_vs_gr.png` | ϖ(t) of Mercury, Newton vs Newton + 1PN, and their difference |
+| `figures/exaggerated_c_rosette.png` | Mercury with c/100: the ellipse visibly turns (0.29°/orbit), fit vs analytic |
+| `figures/solar_system_3d.png` | the 100-year Newton run in 3-D, all planets and the inner four |
+| `figures/energy_error.png` | relative energy error of DOP853 (100 yr) and Yoshida4 (10 yr) |
+| `figures/precession_vs_a.png` | 1PN advance per orbit of each planet vs a(1−e²), with the 6πGM/(c²a(1−e²)) line |
+| `figures/mercury_vs_horizons.png` | distance of the Newton and 1PN runs from the Horizons ephemeris |
+
+![1PN advance per orbit vs a(1-e^2)](figures/precession_vs_a.png)
+
+## Lessons, app and docs
+
+The project is a guided undergraduate course: each phase ships a notebook *and* the matching
+lab of the interactive app, and every lesson states the physics before the code.
+
+| lesson (`notebooks/`) | app lab (`app/streamlit_app.py`) |
+|---|---|
+| 01 Why the integrator matters — order, symplecticity, spurious precession vs the 43″/cy signal | 1 · Integrator lab: method, step, energy error, spurious precession readout |
+| 02 The clockwork solar system — N-body, the Sun's wobble in 3-D, planetary wobble of Mercury's perihelion, residuals vs Horizons | 2 · Solar system: Newton/GR toggle, c slider, amplified GR − Newton displacement in 3-D |
+| 03 Measuring a drift of 0.1″ per orbit — eccentricity vector, three estimators, calibration on an oblate Sun | 3 · Precession tracker: live ϖ(t) of a planet in both runs, fitted and analytic rates |
+| 04 Mercury's extra 43 arcseconds — the 1PN term, 42.98″/cy three ways, the c/100 rosette, PPN β γ | (labs 2 and 3 with c/100) |
+| 05 Orbits around a black hole — effective potential, ISCO, exact vs 1PN, zoom-whirl, capture | 4 · Effective-potential explorer: drag L and E, see the geodesic |
+
+```bash
+.venv/bin/jupyter lab notebooks/                                   # the lessons (stored without outputs)
+uv pip install -e ".[app]" && .venv/bin/streamlit run app/streamlit_app.py   # the lab (streamlit + plotly)
+uv pip install -e ".[docs]" && .venv/bin/mkdocs serve                       # theory pages with derivations
+```
+
+## Status
+
+Phases 0–4 of the ROADMAP (foundations, Newton 2-body and N-body, measurement toolkit,
+1PN + exact Schwarzschild) are implemented, validated, and taught in Lessons 01–05 with the
+corresponding app labs and theory pages. Phase 5 (Einstein–Infeld–Hoffmann N-body, PPN
+playground, Lessons 06–07), Phase 6 (light: deflection and Shapiro delay as geodesics,
+Lesson 08) and the remaining app labs (light bending, PPN) are next.
+
+## License
+
+MIT.

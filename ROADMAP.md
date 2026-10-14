@@ -172,7 +172,7 @@ Each phase ends with a notebook (the lesson) and tests (the validation).
 
 ### Phase 2 — Newton, N-body solar system (medium)
 - Vectorized/numba pairwise forces; run 1 year → 1 century.
-- Validation: positions vs. Horizons at 1 and 10 years (expect km-level drift from omitted bodies).
+- Validation: positions vs. Horizons at 1 and 10 years (measured: Newton drifts to ~1.5e3 km at 10 yr and ~1e4 km at 100 yr, almost all of it the missing GR term; Newton+1PN stays within 5 km at 10 yr, 200 km at 100 yr).
 - Lesson 02: "The clockwork solar system" (Jupiter's pull on Mercury, the Sun's wobble).
 
 ### Phase 3 — Measurement toolkit (medium, the critical phase)
@@ -227,15 +227,15 @@ Streamlit lab with cached precomputed runs:
 
 | Test | Expected | Tolerance |
 |---|---|---|
-| 2-body vs. Kepler analytic, 100 orbits | positions | < 1e-10 AU (DOP853) |
+| 2-body vs. Kepler analytic, 100 orbits | positions | < 1e-7 AU at DOP853 defaults (rtol 1e-12); floor ~4e-10 AU at rtol 2e-14 |
 | Symplectic energy error, 1 century | ΔE/E | < 1e-10 |
 | 2-body Newton precession (noise floor) | 0 | < 0.5 "/century |
 | 2-body 1PN Mercury | 42.98 "/century | ± 0.1 |
 | Schwarzschild exact vs. 1PN, Mercury | agree | < 0.01 "/century |
 | Exaggerated c (c/100) rosette | analytic Δφ | < 1 % |
-| N-body Newton Mercury | 531.6 "/century | ± 1 |
-| N-body EIH Mercury | 574.6 "/century | ± 1 |
-| Venus / Earth / Mars GR | 8.62 / 3.84 / 1.35 | ± 0.05 |
+| N-body Newton Mercury | 531.6 "/century | ± 3 (100-yr OLS slope is biased ~−2.4 by long-period terms; Horizons itself gives 572.2 vs 574.1 by the same method) |
+| N-body EIH Mercury | 574.6 "/century | ± 3 (same bias); run-vs-run difference vs Newton 42.98 ± 0.1 |
+| Venus / Earth / Mars GR (run-vs-run) | 8.62 / 3.84 / 1.35 | ± 0.1 |
 | PPN with β=γ=1 | equals GR run | bitwise-ish |
 | Light deflection at limb | 1.751" | ± 0.001 |
 | Newton vs. Horizons, 10 yr | km-level | documented, not asserted tightly |

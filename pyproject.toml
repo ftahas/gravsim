@@ -25,6 +25,14 @@ dev = [
     "rebound>=4.4",
     "reboundx>=4.4",
 ]
+app = [
+    "streamlit>=1.30",
+    "plotly>=5.18",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.4",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -35,7 +43,7 @@ where = ["."]
 include = ["gravsim*"]
 
 [tool.setuptools.package-data]
-gravsim = ["data/*.json"]
+gravsim = ["data/*.json", "data/*.npz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -43,7 +51,7 @@ markers = [
     "slow: long-running validation tests (deselect with -m 'not slow')",
     "network: tests that need internet access",
 ]
-addopts = "-m 'not network'"
+addopts = "-m 'not network and not slow'"
 
 [tool.ruff]
 line-length = 100

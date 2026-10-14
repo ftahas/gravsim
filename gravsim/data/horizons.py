@@ -40,7 +40,9 @@ def fetch_state(epoch_jd: float = J2000_JD, names: tuple[str, ...] = DEFAULT_BOD
         pos.append([float(tab["x"][0]), float(tab["y"][0]), float(tab["z"][0])])
         vel.append([float(tab["vx"][0]), float(tab["vy"][0]), float(tab["vz"][0])])
     gm = np.array([GM[n] for n in names])
-    return SystemState(t=epoch_jd - J2000_JD, pos=np.array(pos), vel=np.array(vel), gm=gm, names=names)
+    return SystemState(
+        t=epoch_jd - J2000_JD, pos=np.array(pos), vel=np.array(vel), gm=gm, names=names
+    )
 
 
 def fetch_series(
@@ -74,7 +76,9 @@ def fetch_series(
 
 
 # --------------------------------------------------------------------------- cache
-def save_snapshot(state: SystemState, path: Path = J2000_PATH, source: str = "JPL Horizons") -> None:
+def save_snapshot(
+    state: SystemState, path: Path = J2000_PATH, source: str = "JPL Horizons"
+) -> None:
     doc = {
         "epoch_jd_tdb": J2000_JD + state.t,
         "t_days_since_j2000": state.t,
