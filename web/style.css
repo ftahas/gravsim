@@ -189,6 +189,7 @@ input[type="range"] {
 }
 #status.error .status-box { border-color: var(--danger); }
 #status.error .spinner { display: none; }
+#status.error #status-detail { max-height: 60vh; }
 #status-detail {
   text-align: left;
   font-family: var(--mono);

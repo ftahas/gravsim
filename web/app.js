@@ -1301,7 +1301,26 @@ class App {
         return false;
       }
     })();
-    if (!hasWebGL) throw new Error('WebGL is not available in this browser; the 3-D viewer cannot run.');
+    if (!hasWebGL) {
+      // the usual cause is the browser, not the machine: Chrome turns hardware graphics off for
+      // the rest of a session after its GPU process crashes a few times (and no longer falls
+      // back to software WebGL), and both browsers can have acceleration switched off
+      const isFirefox = /firefox/i.test(navigator.userAgent);
+      const steps = isFirefox
+        ? [
+          '1. Open about:support and look at "WebGL 1 / 2 Driver Renderer" under Graphics.',
+          '2. In about:config, webgl.disabled must be false.',
+          '3. In Settings > General > Performance, allow hardware acceleration, then restart Firefox.',
+        ]
+        : [
+          '1. Open chrome://gpu. If WebGL reads "Unavailable" or "Disabled", Chrome has turned hardware graphics off for this session, usually after its GPU process crashed.',
+          '2. Restart Chrome with chrome://restart. Tabs are restored, and a fresh session normally gets WebGL back.',
+          '3. In Settings > System, "Use graphics acceleration when available" must be on.',
+        ];
+      throw new Error(['WebGL is not available in this browser, so the 3-D viewer cannot run. '
+        + 'The page itself is fine: it works in any browser with WebGL enabled.', '',
+        ...steps].join('\n'));
+    }
     // preserveDrawingBuffer keeps the back buffer readable (canvas.toDataURL for tests) and
     // avoids the MSAA-resolve ReadPixels stall that software GL reports as a console warning.
     this.renderer = new THREE.WebGLRenderer({
